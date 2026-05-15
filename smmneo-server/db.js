@@ -1,0 +1,46 @@
+const { MongoClient } = require('mongodb');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+const MONGO_URI = process.env.MONGO_URI || (() => {
+  const user = process.env.DB_USER || '';
+  const pass = process.env.DB_PASS || '';
+  const host = process.env.DB_HOST || 'localhost';
+  const port = process.env.DB_PORT || '27017';
+  if (user && pass && host.includes('mongodb.net')) {
+    return `mongodb+srv://${user}:${pass}@${host}/?retryWrites=true&w=majority`;
+  }
+  if (user && pass) return `mongodb://${user}:${pass}@${host}:${port}/`;
+  return `mongodb://${host}:${port}/`;
+})();
+
+const DB_NAME = process.env.DB_NAME || 'smmneo';
+
+let client = null;
+let db = null;
+
+async function connectDB() {
+  if (db) return db;
+  client = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+  await client.connect();
+  db = client.db(DB_NAME);
+  console.log('✅ Connected to MongoDB', DB_NAME);
+  return db;
+}
+
+function getDB() {
+  if (!db) throw new Error('Database not connected');
+  return db;
+}
+
+async function closeDB() {
+  if (client) {
+    await client.close();
+    client = null;
+    db = null;
+    console.log('MongoDB connection closed');
+  }
+}
+
+module.exports = { connectDB, getDB, closeDB };

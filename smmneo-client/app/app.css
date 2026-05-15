@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+html,
+body {
+  @apply bg-slate-50 text-slate-900;
+  font-family: var(--font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.dashboard-shell,
+.dashboard-sidebar,
+.dashboard-topbar,
+.dashboard-main {
+  transition: all 0.3s ease-in-out;
+}
+
+@media (min-width: 1024px) {
+  .dashboard-sidebar-open .dashboard-topbar,
+  .dashboard-sidebar-open .dashboard-main {
+    margin-left: 260px;
+    left: 260px;
+    width: calc(100% - 260px);
+  }
+
+  .dashboard-sidebar-closed .dashboard-topbar,
+  .dashboard-sidebar-closed .dashboard-main {
+    margin-left: 0;
+    left: 0;
+    width: 100%;
+  }
+}
+
+.dashboard-sidebar {
+  width: 260px;
+  transform: translateX(-260px);
+  transition: all 0.3s ease;
+}
+
+.dashboard-sidebar-open .dashboard-sidebar {
+  transform: translateX(0);
+}
+
+.dashboard-sidebar-closed .dashboard-sidebar {
+  transform: translateX(-260px);
+}
+
+.dashboard-topbar {
+  transition: width 0.3s ease-in-out, margin 0.3s ease-in-out, opacity 0.3s ease-in-out;
+}
+
+.dashboard-main {
+  transition: width 0.3s ease-in-out, margin 0.3s ease-in-out;
+}
