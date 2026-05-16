@@ -118,7 +118,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
           {/* Subcategory Dropdown - Shows if category has subcategories */}
           {subCategories.length > 0 && (
             <div>
-              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">🏷️ Subcategory</label>
+              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Search</label>
               <select
                 value={selectedSubCategory || ""}
                 onChange={(e) => handleSelectSubCategory(e.target.value || null)}
@@ -136,7 +136,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
 
           {/* Service Dropdown */}
           <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">⚙️ Service</label>
+            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Category</label>
             {filteredServices.length > 0 ? (
               <select
                 value={selectedService?.serviceId || ""}

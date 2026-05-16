@@ -183,29 +183,47 @@ function mapServiceCategoryToMainCategory(serviceCategory) {
 
 /**
  * Helper: Extract subcategory from service name
- * Groups similar services together
+ * Extracts the main service type (e.g., "Post Likes", "Story Views", "Post Reaction")
  */
 function extractSubCategory(serviceName, mainCategory) {
   if (!serviceName) return mainCategory;
 
-  const name = serviceName.toLowerCase();
+  // Remove the main category prefix if it exists
+  let name = serviceName;
+  const categoryPrefix = mainCategory + ' ';
+  if (name.toLowerCase().startsWith(categoryPrefix.toLowerCase())) {
+    name = name.substring(categoryPrefix.length);
+  }
 
-  // Common subcategory patterns
-  if (name.includes('like') || name.includes('👍')) return 'Likes';
-  if (name.includes('follow') || name.includes('follower')) return 'Followers';
-  if (name.includes('comment') || name.includes('💬')) return 'Comments';
-  if (name.includes('share') || name.includes('sharing')) return 'Shares';
-  if (name.includes('view') || name.includes('watch')) return 'Views';
-  if (name.includes('subscriber') || name.includes('sub')) return 'Subscribers';
-  if (name.includes('play') || name.includes('stream')) return 'Plays';
-  if (name.includes('retweet') || name.includes('rt')) return 'Retweets';
-  if (name.includes('impression')) return 'Impressions';
-  if (name.includes('reach')) return 'Reach';
-  if (name.includes('click')) return 'Clicks';
-  if (name.includes('save')) return 'Saves';
+  // Extract the main type before "~" or "–" separators
+  // This captures patterns like "Post Likes", "Post Reaction", "Story Views"
+  const parts = name.split(/[~–-]/);
+  let mainType = parts[0].trim();
 
-  // Fallback: use first word or main category
-  const parts = serviceName.split('-').map((p) => p.trim());
-  return parts.length > 1 ? parts[0] : mainCategory;
+  // Remove trailing emojis and extra info for cleaner display
+  mainType = mainType.replace(/[\s]*[👍😍😡❤️💖🤗😮😂😭💬👀✨🎉]/g, '').trim();
+
+  // If we got a good type, return it
+  if (mainType && mainType.length > 2) {
+    return mainType;
+  }
+
+  // Fallback to common patterns if mainType extraction failed
+  const nameLower = serviceName.toLowerCase();
+  if (nameLower.includes('like') || nameLower.includes('👍')) return 'Likes';
+  if (nameLower.includes('follow') || nameLower.includes('follower')) return 'Followers';
+  if (nameLower.includes('comment') || nameLower.includes('💬')) return 'Comments';
+  if (nameLower.includes('share') || nameLower.includes('sharing')) return 'Shares';
+  if (nameLower.includes('view') || nameLower.includes('watch')) return 'Views';
+  if (nameLower.includes('subscriber') || nameLower.includes('sub')) return 'Subscribers';
+  if (nameLower.includes('play') || nameLower.includes('stream')) return 'Plays';
+  if (nameLower.includes('reaction')) return 'Reactions';
+  if (nameLower.includes('retweet') || nameLower.includes('rt')) return 'Retweets';
+  if (nameLower.includes('impression')) return 'Impressions';
+  if (nameLower.includes('reach')) return 'Reach';
+  if (nameLower.includes('click')) return 'Clicks';
+  if (nameLower.includes('save')) return 'Saves';
+
+  return mainCategory;
 }
 
