@@ -115,36 +115,42 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
         </div>
 
         <div className="space-y-3 md:space-y-4">
-          {/* Category Display */}
-          <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Category</label>
-            <div className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 font-semibold truncate">
-              {selectedCategory}
-            </div>
+          {/* Search Bar */}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="🔍 Search"
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm"
+            />
           </div>
 
-          {/* Subcategory Dropdown - Shows if category has subcategories */}
-          {subCategories.length > 0 && (
-            <div>
-              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Subcategory</label>
-              <select
-                value={selectedSubCategory || ""}
-                onChange={(e) => handleSelectSubCategory(e.target.value || null)}
-                className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-              >
-                <option value="">-- All Services --</option>
-                {subCategories.map((subcat) => (
-                  <option key={subcat} value={subcat}>
-                    {subcat}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          {/* Category Dropdown - Combines main category + subcategory */}
+          <div>
+            <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide">Category</label>
+            <select
+              value={`${selectedCategory}||${selectedSubCategory || ''}`}
+              onChange={(e) => {
+                const [cat, subcat] = e.target.value.split('||');
+                if (subcat) {
+                  handleSelectSubCategory(subcat);
+                } else {
+                  handleSelectSubCategory(null);
+                }
+              }}
+              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
+            >
+              <option value={`${selectedCategory}||`}>{selectedCategory}</option>
+              {subCategories.length > 0 && subCategories.map((subcat) => (
+                <option key={subcat} value={`${selectedCategory}||${subcat}`}>
+                  {selectedCategory} - {subcat}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Service Dropdown */}
           <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Service</label>
+            <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide">Service</label>
             {filteredServices.length > 0 ? (
               <select
                 value={selectedService?.serviceId || ""}
@@ -154,17 +160,17 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
                   );
                   if (service) setSelectedService(service);
                 }}
-                className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
               >
                 <option value="">-- Select Service --</option>
                 {filteredServices.map((service) => (
                   <option key={service.serviceId} value={service.serviceId}>
-                    {service.serviceId} - {service.name} ~ ≈ ৳{(service.price * 55.5).toFixed(2)} per 1000
+                    {service.serviceId} - {service.name} ~ ≈ ৳{(service.price * 55.5).toFixed(2)}/1k
                   </option>
                 ))}
               </select>
             ) : (
-              <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-500">
+              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-500 text-center">
                 No services available
               </div>
             )}
@@ -173,12 +179,12 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
           {/* Selected Service Display */}
           {selectedService && (
             <div>
-              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">✅ Selected Service</label>
-              <div className="rounded-md border border-violet-200 bg-violet-50 px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 w-full min-w-0 overflow-hidden">
-                <div className="font-semibold text-violet-900 truncate">
+              <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide">✅ Selected Service</label>
+              <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm text-slate-900 w-full min-w-0 overflow-hidden shadow-sm">
+                <div className="font-bold text-violet-900 truncate text-sm">
                   #{selectedService.serviceId} - {selectedService.name}
                 </div>
-                <div className="mt-1 text-xs text-violet-700">
+                <div className="mt-1.5 text-xs text-violet-700">
                   Price: ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
                 </div>
               </div>
