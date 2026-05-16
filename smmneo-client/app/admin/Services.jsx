@@ -10,13 +10,17 @@ const AdminServices = () => {
   const [providers, setProviders] = useState([]);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [selectedServices, setSelectedServices] = useState(new Set());
+  const [selectAllAcrossApi, setSelectAllAcrossApi] = useState(false);
+  const [deselectedServices, setDeselectedServices] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('services');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [allLoadedServices, setAllLoadedServices] = useState([]);
 
   // Fetch services from global provider settings via proxy
-  const { services, loading, error, totalCount, fetchServices } = useProviderServices(
+  const { services, loading, error, pagination, fetchServices } = useProviderServices(
     null,  // Don't pass credentials - use backend proxy instead
     null
   );
@@ -55,12 +59,14 @@ const AdminServices = () => {
     }
   };
 
-  const handleSwitchProvider = async () => {
-    const provider = providers.find((item) => item._id === selectedProviderId);
+  const activateProvider = async (provider, options = {}) => {
+    const { silent = false } = options;
 
     if (!provider) {
-      toast.error('Please select a provider first');
-      return;
+      if (!silent) {
+        toast.error('Please select a provider first');
+      }
+      return false;
     }
 
     try {
@@ -72,15 +78,44 @@ const AdminServices = () => {
 
       const data = await response.json();
       if (data && data.success) {
-        setProviderSettings(data.data?.provider || provider);
-        setSelectedProviderId(provider._id);
-        toast.success(`Switched to ${provider.name}`);
-      } else {
+        const activeProvider = data.data?.provider || provider;
+        setProviderSettings(activeProvider);
+        setSelectedProviderId(provider._id || '');
+        setCurrentPage(1);
+        setAllLoadedServices([]);
+
+        if (!silent) {
+          toast.success(`Switched to ${provider.name}`);
+        }
+        return true;
+      }
+
+      if (!silent) {
         toast.error(data.error || 'Failed to switch provider');
       }
+      return false;
     } catch (error) {
       console.error('Error switching provider:', error);
-      toast.error('Failed to switch provider');
+      if (!silent) {
+        toast.error('Failed to switch provider');
+      }
+      return false;
+    }
+  };
+
+  const handleSwitchProvider = async () => {
+    const provider = providers.find((item) => item._id === selectedProviderId);
+    await activateProvider(provider);
+  };
+
+  // Load more services to current loaded set
+  const handleLoadMore = async () => {
+    const nextPage = currentPage + 1;
+    try {
+      await fetchServices(nextPage, pagination.limit);
+      setCurrentPage(nextPage);
+    } catch (err) {
+      toast.error('Failed to load more services');
     }
   };
 
@@ -91,101 +126,154 @@ const AdminServices = () => {
   }, []);
 
   useEffect(() => {
-    if (!providers.length) {
-      setSelectedProviderId('');
+    if (loadingSettings) {
       return;
     }
 
-    const matchedProvider =
-      providers.find((provider) => provider._id === providerSettings?._id) ||
-      providers.find((provider) => provider.apiUrl === providerSettings?.apiUrl) ||
-      providers[0];
-
-    if (matchedProvider && matchedProvider._id !== selectedProviderId) {
-      setSelectedProviderId(matchedProvider._id);
+    if (!providers.length) {
+      setSelectedProviderId('');
+      if (providerSettings) {
+        setProviderSettings(null);
+        setAllLoadedServices([]);
+      }
+      return;
     }
-  }, [providers, providerSettings, selectedProviderId]);
 
-  // Fetch services when provider settings are loaded
+    const matchedProviderByCurrent =
+      providers.find((provider) => provider._id === providerSettings?._id) ||
+      providers.find((provider) => provider.apiUrl === providerSettings?.apiUrl);
+
+    if (matchedProviderByCurrent) {
+      const hasValidSelection = providers.some((provider) => provider._id === selectedProviderId);
+      if (!selectedProviderId || !hasValidSelection) {
+        setSelectedProviderId(matchedProviderByCurrent._id);
+      }
+      return;
+    }
+
+    // Keep provider from global settings if it was set from General Settings,
+    // even when it's not in the saved providers list.
+    if (providerSettings?.apiUrl) {
+      if (!selectedProviderId) {
+        setSelectedProviderId(providers[0]?._id || '');
+      }
+      return;
+    }
+
+    const fallbackProvider = providers[0];
+    if (fallbackProvider && fallbackProvider._id !== selectedProviderId) {
+      setSelectedProviderId(fallbackProvider._id);
+    }
+  }, [providers, providerSettings, selectedProviderId, loadingSettings]);
+
+  // Fetch services page 1 when provider settings are loaded
   useEffect(() => {
     if (providerSettings?.apiUrl) {
-      fetchServices();
+      setCurrentPage(1);
+      setAllLoadedServices([]);
+      setSelectAllAcrossApi(false);
+      setSelectedServices(new Set());
+      setDeselectedServices(new Set());
+      fetchServices(1, 50);
     }
-  }, [providerSettings, fetchServices]);
+  }, [providerSettings?.apiUrl, fetchServices]);
+
+  // Accumulate loaded services
+  useEffect(() => {
+    if (services && services.length > 0) {
+      setAllLoadedServices((prev) => {
+        const merged = new Map();
+        prev.forEach((item) => merged.set(String(item.service), item));
+        services.forEach((item) => merged.set(String(item.service), item));
+        return Array.from(merged.values());
+      });
+    }
+  }, [services]);
 
   // Filter services by search term
   const filteredServices = useMemo(() => {
-    if (!searchTerm) return services;
+    if (!searchTerm) return allLoadedServices;
     const term = searchTerm.toLowerCase();
-    return services.filter(
+    return allLoadedServices.filter(
       (s) =>
         s.name?.toLowerCase().includes(term) ||
         s.service?.toString().toLowerCase().includes(term) ||
         s.category?.toLowerCase().includes(term)
     );
-  }, [services, searchTerm]);
+  }, [allLoadedServices, searchTerm]);
 
-  // Show all filtered services (no client-side pagination)
-  const paginatedServices = filteredServices;
-
-  // Group paginated services by category
   const groupedServices = useMemo(() => {
-    const groups = {};
-    paginatedServices.forEach((service) => {
+    return filteredServices.reduce((acc, service) => {
       const category = service.category || 'Uncategorized';
-      if (!groups[category]) {
-        groups[category] = [];
+      if (!acc[category]) {
+        acc[category] = [];
       }
-      groups[category].push(service);
-    });
-    return groups;
-  }, [paginatedServices]);
+      acc[category].push(service);
+      return acc;
+    }, {});
+  }, [filteredServices]);
 
   // Calculate stats
   const stats = useMemo(() => {
+    const selectedCount = selectAllAcrossApi
+      ? Math.max(0, (pagination.total || 0) - deselectedServices.size)
+      : selectedServices.size;
+
     return {
-      total: totalCount,
-      refillable: services.filter((s) => s.refill).length,
-      cancellable: services.filter((s) => s.cancel).length,
-      selected: selectedServices.size,
+      total: pagination.total,
+      loaded: allLoadedServices.length,
+      refillable: allLoadedServices.filter((s) => s.refill).length,
+      cancellable: allLoadedServices.filter((s) => s.cancel).length,
+      selected: selectedCount,
     };
-  }, [services, selectedServices.size, totalCount]);
+  }, [allLoadedServices, selectedServices.size, deselectedServices.size, selectAllAcrossApi, pagination.total]);
+
+  const isServiceSelected = (serviceId) => {
+    const key = String(serviceId);
+    if (selectAllAcrossApi) {
+      return !deselectedServices.has(key);
+    }
+    return selectedServices.has(key);
+  };
 
   // Toggle select service
   const toggleSelectService = (serviceId) => {
-    setSelectedServices((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(serviceId)) {
-        newSet.delete(serviceId);
-      } else {
-        newSet.add(serviceId);
-      }
-      return newSet;
-    });
-  };
+    const key = String(serviceId);
 
-  // Select ALL filtered services (not just current page)
-  const toggleSelectAll = () => {
-    if (selectedServices.size === filteredServices.length && filteredServices.length > 0) {
-      setSelectedServices(new Set());
-    } else {
-      const allIds = new Set(filteredServices.map((s) => s.service));
-      setSelectedServices(allIds);
-    }
-  };
-
-  // Delete selected services
-  const handleDeleteSelected = () => {
-    if (selectedServices.size === 0) {
-      alert('Please select services to delete');
+    if (selectAllAcrossApi) {
+      setDeselectedServices((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) {
+          next.delete(key);
+        } else {
+          next.add(key);
+        }
+        return next;
+      });
       return;
     }
 
-    if (confirm(`Delete ${selectedServices.size} selected services?`)) {
-      console.log('🗑️ Deleting services:', Array.from(selectedServices));
-      // TODO: Call delete API
+    setSelectedServices((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  // Select all services from API (not only loaded page)
+  const toggleSelectAll = () => {
+    if (selectAllAcrossApi) {
+      setSelectAllAcrossApi(false);
       setSelectedServices(new Set());
-      alert(`Deleted ${selectedServices.size} services`);
+      setDeselectedServices(new Set());
+    } else {
+      setSelectAllAcrossApi(true);
+      setSelectedServices(new Set());
+      setDeselectedServices(new Set());
     }
   };
 
@@ -283,8 +371,9 @@ const AdminServices = () => {
           {!loading && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border-2 border-blue-200 p-4">
-                <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Total Services</p>
+                <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Total Available</p>
                 <p className="text-3xl font-bold text-blue-900">{stats.total.toLocaleString()}</p>
+                <p className="text-xs text-blue-700 mt-1">Loaded: {stats.loaded}</p>
               </div>
 
               <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg border-2 border-green-200 p-4">
@@ -308,47 +397,35 @@ const AdminServices = () => {
           {error && (
             <ErrorState
               error={error}
-              onRetry={fetchServices}
+              onRetry={() => fetchServices(1, 50)}
             />
           )}
 
           {/* Loading State */}
-          {loading && <LoadingSpinner message="Loading services from provider..." />}
+          {loading && currentPage === 1 && <LoadingSpinner message="Loading services from provider..." />}
 
           {/* Services List */}
           {!loading && !error && (
             <div className="space-y-6">
-              {/* Select All & Delete */}
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex items-center justify-between gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={selectedServices.size === filteredServices.length && filteredServices.length > 0}
+                    checked={selectAllAcrossApi}
                     onChange={toggleSelectAll}
                     className="w-5 h-5 rounded border-2 border-slate-300 cursor-pointer accent-violet-600"
                   />
                   <span className="font-bold text-slate-900">
-                    {selectedServices.size === filteredServices.length && filteredServices.length > 0
-                      ? `Deselect All (${filteredServices.length})`
-                      : `Select All (${filteredServices.length})`}
+                    {selectAllAcrossApi
+                      ? `Deselect All (${pagination.total || 0})`
+                      : `Select All (${pagination.total || 0})`}
                   </span>
                 </label>
-
-                {selectedServices.size > 0 && (
-                  <button
-                    onClick={handleDeleteSelected}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition"
-                  >
-                    🗑️ Delete {selectedServices.size} Selected
-                  </button>
-                )}
               </div>
 
-              {/* Categories */}
-              {Object.keys(groupedServices).length > 0 ? (
+              {filteredServices.length > 0 ? (
                 Object.entries(groupedServices).map(([category, categoryServices]) => (
                   <div key={category} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                    {/* Category Header */}
                     <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-4">
                       <h2 className="text-lg font-bold text-white flex items-center justify-between">
                         <span>📁 {category}</span>
@@ -358,94 +435,67 @@ const AdminServices = () => {
                       </h2>
                     </div>
 
-                    {/* Services */}
-                    <div className="divide-y divide-slate-200">
-                      {categoryServices.map((service) => {
-                        const serviceId = service.service;
-                        const isSelected = selectedServices.has(serviceId);
-
-                        return (
-                          <div
-                            key={serviceId}
-                            className={`px-6 py-4 transition ${isSelected ? 'bg-violet-50' : 'hover:bg-slate-50'}`}
-                          >
-                            <div className="flex items-start gap-4">
-                              {/* Checkbox */}
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-900 text-white">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-semibold">
                               <input
                                 type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleSelectService(serviceId)}
-                                className="w-5 h-5 rounded border-2 border-slate-300 cursor-pointer accent-violet-600 mt-1"
+                                checked={selectAllAcrossApi}
+                                onChange={toggleSelectAll}
+                                className="w-4 h-4 rounded border-slate-300 cursor-pointer accent-violet-600"
                               />
+                            </th>
+                            <th className="px-4 py-3 text-left font-semibold">Service ID</th>
+                            <th className="px-4 py-3 text-left font-semibold">Service Name</th>
+                            <th className="px-4 py-3 text-left font-semibold">Type</th>
+                            <th className="px-4 py-3 text-left font-semibold">Rate</th>
+                            <th className="px-4 py-3 text-left font-semibold">Min</th>
+                            <th className="px-4 py-3 text-left font-semibold">Max</th>
+                            <th className="px-4 py-3 text-left font-semibold">Refill</th>
+                            <th className="px-4 py-3 text-left font-semibold">Cancel</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {categoryServices.map((service, index) => {
+                            const serviceId = String(service.service);
+                            const isSelected = isServiceSelected(serviceId);
 
-                              {/* Service Info */}
-                              <div className="flex-1">
-                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                  {/* Name & ID */}
-                                  <div>
-                                    <p className="font-bold text-slate-900">{service.name}</p>
-                                    <p className="text-sm text-slate-600">ID: {serviceId}</p>
-                                  </div>
-
-                                  {/* Details */}
-                                  <div className="flex flex-wrap gap-2">
-                                    {service.type && (
-                                      <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded text-xs font-medium">
-                                        {service.type}
-                                      </span>
-                                    )}
-
-                                    <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded text-xs font-bold">
-                                      ${(parseFloat(service.rate) || 0).toFixed(4)}
-                                    </span>
-
-                                    <span className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded text-xs font-medium">
-                                      {service.min}-{service.max}
-                                    </span>
-
-                                    {service.refill ? (
-                                      <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded text-xs font-bold">
-                                        🔄 Refill
-                                      </span>
-                                    ) : (
-                                      <span className="bg-red-100 text-red-700 px-2.5 py-1 rounded text-xs font-bold">
-                                        ✗ No Refill
-                                      </span>
-                                    )}
-
-                                    {service.cancel ? (
-                                      <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded text-xs font-bold">
-                                        ✓ Cancel
-                                      </span>
-                                    ) : (
-                                      <span className="bg-red-100 text-red-700 px-2.5 py-1 rounded text-xs font-bold">
-                                        🔒 Locked
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Actions */}
-                                  <div className="flex gap-2">
-                                    <button className="px-3 py-1.5 text-xs font-semibold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded transition">
-                                      ✏️ Edit
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        if (confirm(`Delete service ${serviceId}?`)) {
-                                          console.log('🗑️ Delete service:', serviceId);
-                                        }
-                                      }}
-                                      className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded transition"
-                                    >
-                                      🗑️ Delete
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                            return (
+                              <tr
+                                key={`${serviceId}-${service.name || ''}-${index}`}
+                                className={`border-t border-slate-200 ${isSelected ? 'bg-violet-50' : 'hover:bg-slate-50'}`}
+                              >
+                                <td className="px-4 py-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelectService(serviceId)}
+                                    className="w-4 h-4 rounded border-slate-300 cursor-pointer accent-violet-600"
+                                  />
+                                </td>
+                                <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{serviceId}</td>
+                                <td className="px-4 py-3 text-slate-900 min-w-[280px]">{service.name}</td>
+                                <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{service.type || '-'}</td>
+                                <td className="px-4 py-3 text-green-700 font-semibold whitespace-nowrap">${(parseFloat(service.rate) || 0).toFixed(4)}</td>
+                                <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{service.min ?? '-'}</td>
+                                <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{service.max ?? '-'}</td>
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <span className={service.refill ? 'text-green-700 font-semibold' : 'text-red-600 font-semibold'}>
+                                    {service.refill ? 'Yes' : 'No'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <span className={service.cancel ? 'text-green-700 font-semibold' : 'text-red-600 font-semibold'}>
+                                    {service.cancel ? 'Yes' : 'No'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 ))
@@ -459,7 +509,28 @@ const AdminServices = () => {
                 </div>
               )}
 
-              {/* No pagination controls - showing all filtered services */}
+              {/* Pagination Controls */}
+              {pagination.hasMore && !loading && allLoadedServices.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm text-center">
+                  <p className="text-sm text-slate-600 mb-4">
+                    Loaded <span className="font-bold">{stats.loaded}</span> of{' '}
+                    <span className="font-bold">{stats.total}</span> services
+                  </p>
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loading}
+                    className="px-6 py-2.5 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? '⏳ Loading...' : '📥 Load More Services'}
+                  </button>
+                </div>
+              )}
+
+              {!pagination.hasMore && allLoadedServices.length > 0 && (
+                <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-xl border border-green-200 p-4 text-center">
+                  <p className="text-sm font-semibold text-green-700">✅ All {stats.total} services loaded</p>
+                </div>
+              )}
             </div>
           )}
         </div>

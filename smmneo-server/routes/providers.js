@@ -104,11 +104,45 @@ router.delete('/:id', async (req, res) => {
   try {
     const db = getDB();
     const { ObjectId } = require('mongodb');
-    
-    const result = await db.collection('providers').deleteOne({ _id: new ObjectId(req.params.id) });
+    const providerId = new ObjectId(req.params.id);
+    const providerToDelete = await db.collection('providers').findOne({ _id: providerId });
+
+    if (!providerToDelete) {
+      return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+
+    const result = await db.collection('providers').deleteOne({ _id: providerId });
 
     if (result.deletedCount === 0) {
       return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+
+    const settingsCollection = db.collection('settings');
+    const globalSettings = await settingsCollection.findOne({ _id: 'global' });
+    const activeProvider = globalSettings?.provider;
+
+    const activeProviderId = activeProvider?._id?.toString?.() || activeProvider?._id;
+    const deletedProviderId = providerToDelete._id.toString();
+    const activeProviderMatchesDeleted =
+      (activeProviderId && activeProviderId === deletedProviderId) ||
+      (activeProvider?.apiUrl && activeProvider.apiUrl === providerToDelete.apiUrl);
+
+    if (activeProviderMatchesDeleted) {
+      const fallbackProvider = await db.collection('providers').findOne({});
+
+      if (fallbackProvider) {
+        await settingsCollection.updateOne(
+          { _id: 'global' },
+          { $set: { provider: fallbackProvider, updatedAt: new Date() } },
+          { upsert: true }
+        );
+      } else {
+        await settingsCollection.updateOne(
+          { _id: 'global' },
+          { $unset: { provider: '' }, $set: { updatedAt: new Date() } },
+          { upsert: true }
+        );
+      }
     }
 
     res.json({ success: true, message: 'Provider deleted successfully' });
