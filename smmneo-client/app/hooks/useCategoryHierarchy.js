@@ -20,15 +20,14 @@ export const PREDEFINED_CATEGORIES = [
  * Custom hook to organize services by predefined categories
  * Uses the 12 categories from DashboardCategoryTabs
  * 
+ * @param {string} selectedCategory - The selected category (passed from parent)
  * Structure: Category -> SubCategory -> Services
  */
-export function useCategoryHierarchy() {
+export function useCategoryHierarchy(selectedCategory = "Everything") {
   const [allServices, setAllServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState("Everything");
   const [selectedSubCategory, setSelectedSubCategory] = useState(null);
-  const [selectedServices, setSelectedServices] = useState(new Set());
 
   // Fetch all services from backend proxy
   const fetchAllServices = useCallback(async () => {
@@ -93,6 +92,11 @@ export function useCategoryHierarchy() {
     fetchAllServices();
   }, [fetchAllServices]);
 
+  // Reset subcategory when category changes
+  useEffect(() => {
+    setSelectedSubCategory(null);
+  }, [selectedCategory]);
+
   // Get services for selected category
   const categoryServices = useMemo(() => {
     if (!selectedCategory || selectedCategory === "Everything") {
@@ -126,52 +130,10 @@ export function useCategoryHierarchy() {
     });
   }, [categoryServices, selectedSubCategory]);
 
-  // Handle category selection
-  const handleSelectCategory = useCallback((categoryLabel) => {
-    setSelectedCategory(categoryLabel);
-    setSelectedSubCategory(null);
-    setSelectedServices(new Set());
-  }, []);
-
   // Handle subcategory selection
   const handleSelectSubCategory = useCallback((subCategory) => {
     setSelectedSubCategory(subCategory);
-    setSelectedServices(new Set());
   }, []);
-
-  // Toggle service selection
-  const toggleServiceSelection = useCallback((serviceId) => {
-    setSelectedServices((prev) => {
-      const next = new Set(prev);
-      const key = String(serviceId);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }, []);
-
-  // Select all services in current filtered set
-  const selectAllFiltered = useCallback(() => {
-    const ids = new Set(
-      filteredServices.map((s) => String(s.serviceId))
-    );
-    setSelectedServices(ids);
-  }, [filteredServices]);
-
-  // Deselect all services
-  const deselectAll = useCallback(() => {
-    setSelectedServices(new Set());
-  }, []);
-
-  // Get selected service objects
-  const getSelectedServiceObjects = useCallback(() => {
-    return filteredServices.filter((s) =>
-      selectedServices.has(String(s.serviceId))
-    );
-  }, [filteredServices, selectedServices]);
 
   return {
     // Predefined categories
@@ -182,8 +144,6 @@ export function useCategoryHierarchy() {
     categoryServices,
     subCategories,
     filteredServices,
-    selectedServices,
-    selectedServiceObjects: getSelectedServiceObjects(),
 
     // State
     selectedCategory,
@@ -192,16 +152,8 @@ export function useCategoryHierarchy() {
     error,
 
     // Methods
-    handleSelectCategory,
     handleSelectSubCategory,
-    toggleServiceSelection,
-    selectAllFiltered,
-    deselectAll,
     fetchAllServices,
-
-    // Utils
-    isServiceSelected: (serviceId) => selectedServices.has(String(serviceId)),
-    getSelectedCount: () => selectedServices.size,
   };
 }
 

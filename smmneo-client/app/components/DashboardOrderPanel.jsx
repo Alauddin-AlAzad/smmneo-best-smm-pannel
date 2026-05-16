@@ -1,45 +1,29 @@
 import React, { useState, useEffect } from "react";
 import toast from 'react-hot-toast';
-import { useCategoryHierarchy, PREDEFINED_CATEGORIES } from "../hooks/useCategoryHierarchy.js";
+import { useCategoryHierarchy } from "../hooks/useCategoryHierarchy.js";
 
-const DashboardOrderPanel = () => {
+const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
   const [activeTab, setActiveTab] = useState("new");
   const [quantity, setQuantity] = useState("");
   const [selectedService, setSelectedService] = useState(null);
   const [link, setLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
   
-  // Use category hierarchy hook with predefined categories
+  // Use category hierarchy hook - category comes from parent or prop
   const {
     categoryServices,
     subCategories,
     filteredServices,
-    selectedCategory,
     selectedSubCategory,
     loading,
-    handleSelectCategory,
     handleSelectSubCategory,
-  } = useCategoryHierarchy();
-
-  // Load Font Awesome 6 Free from CDN once
-  useEffect(() => {
-    const id = "fa6-cdn";
-    if (!document.getElementById(id)) {
-      const link = document.createElement("link");
-      link.id = id;
-      link.rel = "stylesheet";
-      link.href =
-        "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css";
-      document.head.appendChild(link);
-    }
-  }, []);
+  } = useCategoryHierarchy(selectedCategory);
 
   // Auto-select first service when filtered services change
   useEffect(() => {
     if (filteredServices.length > 0 && !selectedService) {
       setSelectedService(filteredServices[0]);
     } else if (filteredServices.length > 0 && selectedService) {
-      // Update selected service if it's no longer in filtered list
       const serviceStillExists = filteredServices.some(
         (s) => String(s.serviceId) === String(selectedService.serviceId)
       );
@@ -57,14 +41,12 @@ const DashboardOrderPanel = () => {
       return;
     }
 
-    // Validate quantity
     const qty = parseInt(quantity);
     if (qty < selectedService.minQuantity || qty > selectedService.maxQuantity) {
       toast.error(`Quantity must be between ${selectedService.minQuantity} and ${selectedService.maxQuantity}`);
       return;
     }
 
-    // Show success message
     toast.success(`Order created: ${selectedService.name} x${quantity}`);
     setLink("");
     setQuantity("");
@@ -74,7 +56,6 @@ const DashboardOrderPanel = () => {
     return <div className="p-6 text-center">Loading services...</div>;
   }
 
-  // Build service info from selected service
   const serviceInfo = selectedService ? {
     id: selectedService.serviceId.toString(),
     title: `${selectedService.serviceId} ~ ${selectedService.name} ~ ≈ ৳${(selectedService.price * 55.5).toFixed(2)} per 1000`,
@@ -134,42 +115,8 @@ const DashboardOrderPanel = () => {
         </div>
 
         <div className="space-y-3 md:space-y-4">
-          {/* Category Buttons - 12 Predefined Categories */}
-          <div>
-            <label className="mb-2 md:mb-3 block text-xs md:text-sm font-bold text-slate-800">Select Category:</label>
-            <div className="grid grid-cols-4 gap-2 md:grid-cols-3 xl:grid-cols-6">
-              {PREDEFINED_CATEGORIES.map((category) => {
-                const isActive = selectedCategory === category.label;
-                return (
-                  <button
-                    key={category.label}
-                    onClick={() => handleSelectCategory(category.label)}
-                    className={`
-                      flex flex-col items-center justify-center gap-1
-                      rounded-[3px] border px-2 md:px-3 py-2 md:py-3
-                      text-xs md:text-sm font-semibold text-white transition
-                      ${
-                        isActive
-                          ? "border-violet-500 bg-violet-600 shadow-md shadow-violet-900/40"
-                          : "border-slate-700 bg-slate-900 hover:border-violet-500 hover:bg-violet-600"
-                      }
-                    `}
-                    title={category.label}
-                  >
-                    {/* Icon */}
-                    <i className={`${category.faClass} text-lg text-white`} />
-                    {/* Label — hidden on small screens */}
-                    <span className="hidden md:inline text-white whitespace-nowrap text-[10px] md:text-xs text-center">
-                      {category.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Subcategory Dropdown - Shows when category selected and has subcategories */}
-          {selectedCategory && subCategories.length > 0 && (
+          {/* Subcategory Dropdown - Shows if category has subcategories */}
+          {subCategories.length > 0 && (
             <div>
               <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">🏷️ Subcategory</label>
               <select
@@ -177,7 +124,7 @@ const DashboardOrderPanel = () => {
                 onChange={(e) => handleSelectSubCategory(e.target.value || null)}
                 className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               >
-                <option value="">-- All {selectedCategory} Services --</option>
+                <option value="">-- All Services --</option>
                 {subCategories.map((subcat) => (
                   <option key={subcat} value={subcat}>
                     {subcat}
@@ -187,35 +134,33 @@ const DashboardOrderPanel = () => {
             </div>
           )}
 
-          {/* Service Dropdown - Shows when subcategory selected OR category selected but no subcats */}
-          {selectedCategory && (
-            <div>
-              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">⚙️ Service</label>
-              {filteredServices.length > 0 ? (
-                <select
-                  value={selectedService?.serviceId || ""}
-                  onChange={(e) => {
-                    const service = filteredServices.find(
-                      (s) => String(s.serviceId) === e.target.value
-                    );
-                    if (service) setSelectedService(service);
-                  }}
-                  className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-                >
-                  <option value="">-- Select Service --</option>
-                  {filteredServices.map((service) => (
-                    <option key={service.serviceId} value={service.serviceId}>
-                      {service.serviceId} ~ {service.name} ~ ${service.price.toFixed(4)}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-500">
-                  No services available
-                </div>
-              )}
-            </div>
-          )}
+          {/* Service Dropdown */}
+          <div>
+            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">⚙️ Service</label>
+            {filteredServices.length > 0 ? (
+              <select
+                value={selectedService?.serviceId || ""}
+                onChange={(e) => {
+                  const service = filteredServices.find(
+                    (s) => String(s.serviceId) === e.target.value
+                  );
+                  if (service) setSelectedService(service);
+                }}
+                className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+              >
+                <option value="">-- Select Service --</option>
+                {filteredServices.map((service) => (
+                  <option key={service.serviceId} value={service.serviceId}>
+                    {service.serviceId} ~ {service.name} ~ ${service.price.toFixed(4)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-500">
+                No services available
+              </div>
+            )}
+          </div>
 
           {/* Selected Service Display */}
           {selectedService && (
