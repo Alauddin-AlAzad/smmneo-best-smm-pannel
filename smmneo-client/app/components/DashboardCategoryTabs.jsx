@@ -15,7 +15,7 @@ const tabs = [
   { label: "Others",          faClass: "fas fa-ellipsis" },
 ];
 
-const DashboardCategoryTabs = () => {
+const DashboardCategoryTabs = ({ onCategoryChange }) => {
   const [active, setActive] = useState("Everything");
 
   // Load Font Awesome 6 Free from CDN once
@@ -39,7 +39,10 @@ const DashboardCategoryTabs = () => {
           return (
             <button
               key={tab.label}
-              onClick={() => setActive(tab.label)}
+              onClick={() => {
+                setActive(tab.label);
+                if (onCategoryChange) onCategoryChange(tab.label);
+              }}
               className={`
                 flex flex-row items-center justify-center gap-2
                 rounded-[3px] border px-[3px] py-[3px] md:px-4 md:py-3

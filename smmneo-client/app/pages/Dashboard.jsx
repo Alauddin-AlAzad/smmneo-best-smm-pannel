@@ -11,6 +11,7 @@ import DashboardServices from "../components/DashboardServices.jsx";
 const Dashboard = () => {
   const { user, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("Everything");
 
   if (loading) {
     return (
@@ -30,8 +31,8 @@ const Dashboard = () => {
       <DashboardTopbar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
       <main className={`dashboard-main min-w-0 px-[10px] py-6 pt-[96px] transition-all duration-300 ${sidebarOpen ? "lg:ml-[260px] lg:w-[calc(100%-260px)]" : "lg:ml-0 lg:w-full"}`}>
         <DashboardMetrics />
-        <DashboardCategoryTabs />
-        <DashboardOrderPanel />
+        <DashboardCategoryTabs onCategoryChange={setSelectedCategory} />
+        <DashboardOrderPanel selectedCategory={selectedCategory} />
         <DashboardServices />
       </main>
     </div>
