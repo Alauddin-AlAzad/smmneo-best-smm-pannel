@@ -115,10 +115,18 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
         </div>
 
         <div className="space-y-3 md:space-y-4">
+          {/* Category Display */}
+          <div>
+            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Category</label>
+            <div className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 font-semibold truncate">
+              {selectedCategory}
+            </div>
+          </div>
+
           {/* Subcategory Dropdown - Shows if category has subcategories */}
           {subCategories.length > 0 && (
             <div>
-              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Search</label>
+              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Subcategory</label>
               <select
                 value={selectedSubCategory || ""}
                 onChange={(e) => handleSelectSubCategory(e.target.value || null)}
@@ -136,7 +144,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
 
           {/* Service Dropdown */}
           <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Category</label>
+            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Service</label>
             {filteredServices.length > 0 ? (
               <select
                 value={selectedService?.serviceId || ""}
@@ -151,7 +159,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
                 <option value="">-- Select Service --</option>
                 {filteredServices.map((service) => (
                   <option key={service.serviceId} value={service.serviceId}>
-                    {service.serviceId} ~ {service.name} ~ ${service.price.toFixed(4)}
+                    {service.serviceId} - {service.name} ~ ≈ ৳{(service.price * 55.5).toFixed(2)} per 1000
                   </option>
                 ))}
               </select>
@@ -166,13 +174,13 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
           {selectedService && (
             <div>
               <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">✅ Selected Service</label>
-              <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-800 w-full min-w-0 overflow-hidden">
-                <span className="shrink-0 rounded-full bg-violet-600 px-2 md:px-2.5 py-0.5 text-xs font-bold text-white whitespace-nowrap">
-                  {selectedService.serviceId}
-                </span>
-                <span className="truncate text-slate-700 flex-1 overflow-hidden text-ellipsis">
-                  – {selectedService.name} ~ ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
-                </span>
+              <div className="rounded-md border border-violet-200 bg-violet-50 px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 w-full min-w-0 overflow-hidden">
+                <div className="font-semibold text-violet-900 truncate">
+                  #{selectedService.serviceId} - {selectedService.name}
+                </div>
+                <div className="mt-1 text-xs text-violet-700">
+                  Price: ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
+                </div>
               </div>
             </div>
           )}
@@ -232,8 +240,15 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
           {/* Charge */}
           <div>
             <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Charge</label>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-700 min-h-[42px]">
-              {charge ? `৳${charge}` : ""}
+            <div className="rounded-md border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 px-3 md:px-4 py-3 md:py-3.5 text-sm md:text-base font-bold text-slate-900 min-h-[50px] flex items-center">
+              {charge ? (
+                <span className="text-base md:text-lg">
+                  <span className="text-violet-600">৳</span>
+                  {charge}
+                </span>
+              ) : (
+                <span className="text-slate-400">Enter quantity to calculate</span>
+              )}
             </div>
           </div>
 
@@ -241,47 +256,85 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
           <button 
             onClick={handleSubmitOrder}
             disabled={submitting}
-            className="w-full rounded-lg bg-violet-600 py-2 md:py-3 text-xs md:text-sm font-bold text-white transition hover:bg-violet-500 active:scale-[0.98] disabled:opacity-50"
+            className="w-full rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 py-2.5 md:py-3 text-xs md:text-sm font-bold text-white transition hover:from-violet-500 hover:to-fuchsia-500 active:scale-[0.98] disabled:opacity-50 shadow-md hover:shadow-lg"
           >
-            {submitting ? "Processing..." : "Submit"}
+            {submitting ? "Processing..." : "🛒 Submit Order"}
           </button>
         </div>
       </div>
 
-      {/* RIGHT PANEL */}
-      <div className="rounded-[3px] border border-slate-200/70 bg-white p-3 md:p-5 shadow-sm w-full min-w-0 overflow-x-hidden">
-        {/* Service Header Banner */}
-        <div className="rounded-md bg-gradient-to-br from-violet-700 via-violet-600 to-fuchsia-600 px-3 md:px-5 pt-3 md:pt-4 pb-4 md:pb-5 text-white text-center">
-          <span className="inline-block rounded-full bg-yellow-400 px-3 md:px-4 py-0.5 md:py-1 text-xs md:text-sm font-bold text-slate-900 mb-2 md:mb-3">
-            # {serviceInfo?.id}
-          </span>
-          <p className="text-xs md:text-sm font-semibold leading-snug">
-            {serviceInfo?.title}
-          </p>
-        </div>
+      {/* RIGHT PANEL - Service Details */}
+      <div className="rounded-[3px] border border-slate-200/70 bg-white p-4 md:p-6 shadow-sm w-full min-w-0 overflow-x-hidden overflow-y-auto max-h-[600px]">
+        {selectedService ? (
+          <>
+            {/* Service Header */}
+            <div className="rounded-md bg-gradient-to-br from-violet-600 via-violet-500 to-fuchsia-500 px-4 md:px-5 py-4 md:py-5 text-white mb-4 md:mb-5\">
+              <div className="flex items-start gap-3 mb-2\">
+                <span className="inline-block rounded-full bg-yellow-300 px-3 md:px-4 py-1 text-xs md:text-sm font-bold text-slate-900 whitespace-nowrap\">
+                  # {selectedService.serviceId}
+                </span>
+              </div>
+              <p className=\"text-xs md:text-sm font-semibold leading-snug break-words\">
+                {selectedService.name}
+              </p>
+              <p className=\"text-xs md:text-sm mt-2 font-medium opacity-95\">
+                Price: ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
+              </p>
+            </div>
 
-        {/* Description */}
-        <div className="mt-3 md:mt-5 space-y-3 md:space-y-4 text-xs md:text-sm text-slate-700 w-full min-w-0 overflow-x-hidden">
-          <div className="w-full min-w-0 overflow-x-hidden">
-            <p className="font-bold text-slate-900 mb-1">Description</p>
-            <p className="break-words">Link: {serviceInfo?.description.link}</p>
-            <p className="break-words">Start: {serviceInfo?.description.start}</p>
-            <p className="break-words">Speed: {serviceInfo?.description.speed}</p>
-            <p className="break-words">Refill: {serviceInfo?.description.refill}</p>
-          </div>
+            {/* Service Details */}
+            <div className=\"space-y-4 md:space-y-5 text-xs md:text-sm text-slate-700\">
+              {/* Details Grid */}
+              <div className=\"bg-slate-50 rounded-md p-3 md:p-4 space-y-2 border border-slate-200\">
+                <div className=\"flex justify-between items-start gap-2\">
+                  <span className=\"font-semibold text-slate-800\">Link:</span>
+                  <span className=\"text-right break-words\">{link || '(Enter link above)'}</span>
+                </div>
+                <div className=\"flex justify-between items-start gap-2\">
+                  <span className=\"font-semibold text-slate-800\">Start:</span>
+                  <span className=\"text-right\">{selectedService.dripFeed ? 'Instant to 24 hours' : 'Instant to 1 minute'}</span>
+                </div>
+                <div className=\"flex justify-between items-start gap-2\">
+                  <span className=\"font-semibold text-slate-800\">Speed:</span>
+                  <span className=\"text-right\">{selectedService.dripFeed ? '3k-5k/day' : '100k+/day'}</span>
+                </div>
+                <div className=\"flex justify-between items-start gap-2\">
+                  <span className=\"font-semibold text-slate-800\">Refill:</span>
+                  <span className=\"text-right font-semibold\">{selectedService.refill ? '✅ Yes (30 days)' : '❌ No'}</span>
+                </div>
+              </div>
 
-          <div className="w-full min-w-0 overflow-x-hidden">
-            <p className="font-bold text-slate-900 mb-1 md:mb-2">Important Notes:</p>
-            <ul className="space-y-1.5 md:space-y-2">
-              {serviceInfo?.notes.map((note, i) => (
-                <li key={i} className="flex gap-2 w-full min-w-0">
-                  <span className="mt-0.5 shrink-0 text-slate-400">•</span>
-                  <span className="break-words">{note}</span>
-                </li>
-              ))}
-            </ul>
+              {/* Important Notes */}
+              <div>
+                <p className=\"font-bold text-slate-900 mb-2 md:mb-3\">⚠️ Important Notes:</p>
+                <ul className=\"space-y-1.5 md:space-y-2 bg-amber-50 border border-amber-200 rounded-md p-3 md:p-4\">
+                  <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
+                    <span className=\"mt-0.5 shrink-0 text-amber-600 font-bold\">•</span>
+                    <span className=\"break-words text-slate-700\">Do not place orders for private accounts or private links.</span>
+                  </li>
+                  <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
+                    <span className=\"mt-0.5 shrink-0 text-amber-600 font-bold\">•</span>
+                    <span className=\"break-words text-slate-700\">Avoid placing a second order on the same link until the current order is fully completed.</span>
+                  </li>
+                  <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
+                    <span className=\"mt-0.5 shrink-0 text-amber-600 font-bold\">•</span>
+                    <span className=\"break-words text-slate-700\">When experiencing high demand, starting speed may vary.</span>
+                  </li>
+                  {selectedService.cancel && (
+                    <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
+                      <span className=\"mt-0.5 shrink-0 text-green-600 font-bold\">✓</span>
+                      <span className=\"break-words text-slate-700\">Cancellation available up to 90% completion.</span>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className=\"flex items-center justify-center h-64 text-center text-slate-500\">
+            <p className=\"text-sm md:text-base\">Select a service to view details →</p>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
