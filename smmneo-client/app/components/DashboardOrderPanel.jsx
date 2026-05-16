@@ -1,58 +1,53 @@
 import React, { useState, useEffect } from "react";
 import toast from 'react-hot-toast';
-
-// Mock services data
-const mockServices = [
-  {
-    serviceId: 1001,
-    name: "Instagram Likes",
-    category: "Instagram",
-    price: 5.50,
-    minQuantity: 100,
-    maxQuantity: 10000,
-  },
-  {
-    serviceId: 1002,
-    name: "Instagram Followers",
-    category: "Instagram",
-    price: 8.00,
-    minQuantity: 50,
-    maxQuantity: 5000,
-  },
-  {
-    serviceId: 1003,
-    name: "TikTok Likes",
-    category: "TikTok",
-    price: 4.50,
-    minQuantity: 200,
-    maxQuantity: 20000,
-  },
-  {
-    serviceId: 1004,
-    name: "YouTube Views",
-    category: "YouTube",
-    price: 6.00,
-    minQuantity: 100,
-    maxQuantity: 50000,
-  },
-];
+import { useCategoryHierarchy, PREDEFINED_CATEGORIES } from "../hooks/useCategoryHierarchy.js";
 
 const DashboardOrderPanel = () => {
   const [activeTab, setActiveTab] = useState("new");
   const [quantity, setQuantity] = useState("");
-  const [services, setServices] = useState([]);
   const [selectedService, setSelectedService] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [link, setLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  
+  // Use category hierarchy hook with predefined categories
+  const {
+    categoryServices,
+    subCategories,
+    filteredServices,
+    selectedCategory,
+    selectedSubCategory,
+    loading,
+    handleSelectCategory,
+    handleSelectSubCategory,
+  } = useCategoryHierarchy();
 
+  // Load Font Awesome 6 Free from CDN once
   useEffect(() => {
-    // Load mock services
-    setServices(mockServices);
-    if (mockServices.length > 0) {
-      setSelectedService(mockServices[0]);
+    const id = "fa6-cdn";
+    if (!document.getElementById(id)) {
+      const link = document.createElement("link");
+      link.id = id;
+      link.rel = "stylesheet";
+      link.href =
+        "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css";
+      document.head.appendChild(link);
     }
   }, []);
+
+  // Auto-select first service when filtered services change
+  useEffect(() => {
+    if (filteredServices.length > 0 && !selectedService) {
+      setSelectedService(filteredServices[0]);
+    } else if (filteredServices.length > 0 && selectedService) {
+      // Update selected service if it's no longer in filtered list
+      const serviceStillExists = filteredServices.some(
+        (s) => String(s.serviceId) === String(selectedService.serviceId)
+      );
+      if (!serviceStillExists) {
+        setSelectedService(filteredServices[0]);
+      }
+    }
+  }, [filteredServices, selectedService]);
 
   const handleSubmitOrder = (e) => {
     e.preventDefault();
@@ -79,28 +74,30 @@ const DashboardOrderPanel = () => {
     return <div className="p-6 text-center">Loading services...</div>;
   }
 
+  // Build service info from selected service
   const serviceInfo = selectedService ? {
     id: selectedService.serviceId.toString(),
     title: `${selectedService.serviceId} ~ ${selectedService.name} ~ ≈ ৳${(selectedService.price * 55.5).toFixed(2)} per 1000`,
     description: {
       link: link || "https://example.com",
-      start: "0-1 mint",
-      speed: "100M/days",
-      refill: selectedService.category,
+      start: selectedService.dripFeed ? "0-2 hours (drip feed)" : "0-1 minute",
+      speed: "100-200 per day",
+      refill: selectedService.refill ? "Yes (refill enabled)" : "No (no refill)",
     },
     notes: [
       "When the service is experiencing high demand, the starting speed may vary.",
       "Please avoid placing a second order on the same link until the current order is fully completed in the system.",
       "If you encounter any issues with the service, kindly reach out to our support team for assistance.",
       "Do not place orders for private accounts or private links. Orders for private content will not be processed and may not be refunded.",
+      selectedService.cancel ? "Cancellation available up to 90% completion." : "Cancellation is not available for this service.",
     ],
     min: selectedService.minQuantity,
     max: selectedService.maxQuantity,
-    averageTime: "2 minutes",
+    averageTime: selectedService.dripFeed ? "24-72 hours" : "2-4 minutes",
     recentTimes: [
-      "5000 = 2 min 22 sec",
-      "250 = 1 min 6 sec",
-      "10000 = 1 min 12 sec",
+      `${selectedService.maxQuantity} = ${selectedService.dripFeed ? "24-48 hours" : "2-4 minutes"}`,
+      `${Math.round(selectedService.maxQuantity / 2)} = ${selectedService.dripFeed ? "12-24 hours" : "1-2 minutes"}`,
+      `${selectedService.minQuantity} = ${selectedService.dripFeed ? "2-6 hours" : "30-60 seconds"}`,
     ],
   } : null;
 
@@ -137,45 +134,103 @@ const DashboardOrderPanel = () => {
         </div>
 
         <div className="space-y-3 md:space-y-4">
-          {/* Search */}
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs md:text-sm">🔍</span>
-            <input
-              type="search"
-              placeholder="Search"
-              className="w-full rounded-md border border-slate-200 bg-slate-50 py-2 md:py-2.5 pl-8 md:pl-9 pr-3 md:pr-4 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-            />
-          </div>
-
-          {/* Category */}
+          {/* Category Buttons - 12 Predefined Categories */}
           <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Category</label>
-            <select 
-              value={selectedService?.category || ''}
-              onChange={(e) => {
-                const service = services.find(s => s.category === e.target.value);
-                if (service) setSelectedService(service);
-              }}
-              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-            >
-              {services.map((service, idx) => (
-                <option key={idx} value={service.category}>{service.category}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Service */}
-          <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Service</label>
-            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-800 w-full min-w-0 overflow-hidden">
-              <span className="shrink-0 rounded-full bg-violet-600 px-2 md:px-2.5 py-0.5 text-xs font-bold text-white whitespace-nowrap">
-                {selectedService?.serviceId}
-              </span>
-              <span className="truncate text-slate-700 flex-1 overflow-hidden text-ellipsis">
-                – {selectedService?.name} ~ ≈ ৳{selectedService ? (selectedService.price * 55.5).toFixed(2) : "0"} pe...
-              </span>
+            <label className="mb-2 md:mb-3 block text-xs md:text-sm font-bold text-slate-800">Select Category:</label>
+            <div className="grid grid-cols-4 gap-2 md:grid-cols-3 xl:grid-cols-6">
+              {PREDEFINED_CATEGORIES.map((category) => {
+                const isActive = selectedCategory === category.label;
+                return (
+                  <button
+                    key={category.label}
+                    onClick={() => handleSelectCategory(category.label)}
+                    className={`
+                      flex flex-col items-center justify-center gap-1
+                      rounded-[3px] border px-2 md:px-3 py-2 md:py-3
+                      text-xs md:text-sm font-semibold text-white transition
+                      ${
+                        isActive
+                          ? "border-violet-500 bg-violet-600 shadow-md shadow-violet-900/40"
+                          : "border-slate-700 bg-slate-900 hover:border-violet-500 hover:bg-violet-600"
+                      }
+                    `}
+                    title={category.label}
+                  >
+                    {/* Icon */}
+                    <i className={`${category.faClass} text-lg text-white`} />
+                    {/* Label — hidden on small screens */}
+                    <span className="hidden md:inline text-white whitespace-nowrap text-[10px] md:text-xs text-center">
+                      {category.label}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
+
+          {/* Subcategory Dropdown - Shows when category selected and has subcategories */}
+          {selectedCategory && subCategories.length > 0 && (
+            <div>
+              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">🏷️ Subcategory</label>
+              <select
+                value={selectedSubCategory || ""}
+                onChange={(e) => handleSelectSubCategory(e.target.value || null)}
+                className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+              >
+                <option value="">-- All {selectedCategory} Services --</option>
+                {subCategories.map((subcat) => (
+                  <option key={subcat} value={subcat}>
+                    {subcat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Service Dropdown - Shows when subcategory selected OR category selected but no subcats */}
+          {selectedCategory && (
+            <div>
+              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">⚙️ Service</label>
+              {filteredServices.length > 0 ? (
+                <select
+                  value={selectedService?.serviceId || ""}
+                  onChange={(e) => {
+                    const service = filteredServices.find(
+                      (s) => String(s.serviceId) === e.target.value
+                    );
+                    if (service) setSelectedService(service);
+                  }}
+                  className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                >
+                  <option value="">-- Select Service --</option>
+                  {filteredServices.map((service) => (
+                    <option key={service.serviceId} value={service.serviceId}>
+                      {service.serviceId} ~ {service.name} ~ ${service.price.toFixed(4)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-500">
+                  No services available
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Selected Service Display */}
+          {selectedService && (
+            <div>
+              <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">✅ Selected Service</label>
+              <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-800 w-full min-w-0 overflow-hidden">
+                <span className="shrink-0 rounded-full bg-violet-600 px-2 md:px-2.5 py-0.5 text-xs font-bold text-white whitespace-nowrap">
+                  {selectedService.serviceId}
+                </span>
+                <span className="truncate text-slate-700 flex-1 overflow-hidden text-ellipsis">
+                  – {selectedService.name} ~ ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Link */}
           <div>
