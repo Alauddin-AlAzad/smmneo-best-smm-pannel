@@ -8,6 +8,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const providerServicesCache = {
+  providerKey: null,
+  fetchedAt: 0,
+  services: [],
+};
+
+const PROVIDER_SERVICES_CACHE_TTL_MS = 5 * 60 * 1000;
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -217,6 +225,162 @@ app.delete('/api/providers/:id', async (req, res) => {
 });
 
 // ============ PROVIDER PROXY ROUTES ============
+// GET /api/provider/categories - return cached category summary
+app.get('/api/provider/categories', async (req, res) => {
+  try {
+    const db = getDB();
+    const col = db.collection('settings');
+    const doc = await col.findOne({ _id: 'global' });
+    const provider = doc?.provider;
+
+    if (!provider || !provider.apiUrl) {
+      return res.status(400).json({ success: false, error: 'No provider configured' });
+    }
+
+    const apiUrl = provider.apiUrl;
+    const apiKey = provider.apiKey;
+    const cacheKey = `${apiUrl}::${apiKey || ''}`;
+    const cacheIsFresh = providerServicesCache.providerKey === cacheKey
+      && providerServicesCache.services.length > 0
+      && (Date.now() - providerServicesCache.fetchedAt) < PROVIDER_SERVICES_CACHE_TTL_MS;
+
+    let allServices = providerServicesCache.services;
+
+    if (!cacheIsFresh) {
+      const params = new URLSearchParams();
+      if (apiKey) params.append('key', apiKey);
+      params.append('action', 'services');
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        body: params,
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({ success: false, error: 'Provider returned error' });
+      }
+
+      const data = await response.json();
+      allServices = Array.isArray(data) ? data : (data.data || []);
+
+      if (!Array.isArray(allServices)) {
+        return res.status(500).json({ success: false, error: 'Invalid provider response format' });
+      }
+
+      providerServicesCache.providerKey = cacheKey;
+      providerServicesCache.fetchedAt = Date.now();
+      providerServicesCache.services = allServices;
+    }
+
+    const categories = new Map();
+
+    allServices.forEach((service) => {
+      const categoryName = mapServiceCategoryToMainCategory(service?.category || service?.type || 'Others');
+      const current = categories.get(categoryName) || { label: categoryName, count: 0 };
+      current.count += 1;
+      categories.set(categoryName, current);
+    });
+
+    const orderedCategories = [
+      'Instagram',
+      'Facebook',
+      'Youtube',
+      'Twitter',
+      'Spotify',
+      'TikTok',
+      'Telegram',
+      'LinkedIn',
+      'Discord',
+      'Website Traffic',
+      'Others',
+    ];
+
+    const summary = orderedCategories.map((label) => ({
+      label,
+      count: categories.get(label)?.count || 0,
+    }));
+
+    res.json({
+      success: true,
+      data: summary,
+      total: allServices.length,
+    });
+  } catch (err) {
+    console.error('Provider category summary error:', err);
+    res.status(500).json({ success: false, error: 'Failed to load category summary', message: err.message });
+  }
+});
+
+// GET /api/provider/subcategories - return unique raw subcategories grouped by main category
+app.get('/api/provider/subcategories', async (req, res) => {
+  try {
+    const db = getDB();
+    const col = db.collection('settings');
+    const doc = await col.findOne({ _id: 'global' });
+    const provider = doc?.provider;
+
+    if (!provider || !provider.apiUrl) {
+      return res.status(400).json({ success: false, error: 'No provider configured' });
+    }
+
+    const apiUrl = provider.apiUrl;
+    const apiKey = provider.apiKey;
+    const cacheKey = `${apiUrl}::${apiKey || ''}`;
+    const cacheIsFresh = providerServicesCache.providerKey === cacheKey
+      && providerServicesCache.services.length > 0
+      && (Date.now() - providerServicesCache.fetchedAt) < PROVIDER_SERVICES_CACHE_TTL_MS;
+
+    let allServices = providerServicesCache.services;
+
+    if (!cacheIsFresh) {
+      const params = new URLSearchParams();
+      if (apiKey) params.append('key', apiKey);
+      params.append('action', 'services');
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        body: params,
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({ success: false, error: 'Provider returned error' });
+      }
+
+      const data = await response.json();
+      allServices = Array.isArray(data) ? data : (data.data || []);
+
+      if (!Array.isArray(allServices)) {
+        return res.status(500).json({ success: false, error: 'Invalid provider response format' });
+      }
+
+      providerServicesCache.providerKey = cacheKey;
+      providerServicesCache.fetchedAt = Date.now();
+      providerServicesCache.services = allServices;
+    }
+
+    const grouped = new Map();
+    allServices.forEach((service) => {
+      const main = mapServiceCategoryToMainCategory(service?.category || service?.type || 'Others');
+      const raw = (service?.category || service?.type || '').toString().trim();
+      const set = grouped.get(main) || new Set();
+      if (raw) set.add(raw);
+      grouped.set(main, set);
+    });
+
+    const result = Array.from(grouped.entries()).map(([main, set]) => ({
+      main,
+      subcategories: Array.from(set).sort(),
+    }));
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('Provider subcategory summary error:', err);
+    res.status(500).json({ success: false, error: 'Failed to load subcategory summary', message: err.message });
+  }
+});
+
 // GET /api/provider/services - proxy to configured provider with PAGINATION
 app.get('/api/provider/services', async (req, res) => {
   try {
@@ -231,41 +395,64 @@ app.get('/api/provider/services', async (req, res) => {
 
     const apiUrl = provider.apiUrl;
     const apiKey = provider.apiKey;
+    const selectedCategory = (req.query.category || '').toString().trim();
+    const normalizedCategory = selectedCategory && selectedCategory.toLowerCase() !== 'everything'
+      ? selectedCategory
+      : '';
 
     // Parse pagination params
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50)); // cap at 100, default 50
+    const limit = Math.min(10000, Math.max(1, parseInt(req.query.limit) || 50)); // cap at 10000, default 50
 
-    const params = new URLSearchParams();
-    if (apiKey) params.append('key', apiKey);
-    params.append('action', 'services');
+    const cacheKey = `${apiUrl}::${apiKey || ''}`;
+    const cacheIsFresh = providerServicesCache.providerKey === cacheKey
+      && providerServicesCache.services.length > 0
+      && (Date.now() - providerServicesCache.fetchedAt) < PROVIDER_SERVICES_CACHE_TTL_MS;
 
-    console.log(`📤 Proxying to ${apiUrl} (page=${page}, limit=${limit})`);
+    let allServices = providerServicesCache.services;
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      body: params,
-      headers: { Accept: 'application/json' },
-    });
+    if (!cacheIsFresh) {
+      const params = new URLSearchParams();
+      if (apiKey) params.append('key', apiKey);
+      params.append('action', 'services');
 
-    if (!response.ok) {
-      console.error(`Provider returned status ${response.status}`);
-      return res.status(response.status).json({ success: false, error: 'Provider returned error' });
+      console.log(`📤 Proxying to ${apiUrl} (refresh cache, category=${normalizedCategory || 'all'}, page=${page}, limit=${limit})`);
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        body: params,
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        console.error(`Provider returned status ${response.status}`);
+        return res.status(response.status).json({ success: false, error: 'Provider returned error' });
+      }
+
+      const data = await response.json();
+      allServices = Array.isArray(data) ? data : (data.data || []);
+
+      if (!Array.isArray(allServices)) {
+        console.error('Provider response is not an array');
+        return res.status(500).json({ success: false, error: 'Invalid provider response format' });
+      }
+
+      providerServicesCache.providerKey = cacheKey;
+      providerServicesCache.fetchedAt = Date.now();
+      providerServicesCache.services = allServices;
+    } else {
+      console.log(`♻️ Using cached services for ${apiUrl} (category=${normalizedCategory || 'all'}, page=${page}, limit=${limit})`);
     }
 
-    const data = await response.json();
-    let allServices = Array.isArray(data) ? data : (data.data || []);
-
-    if (!Array.isArray(allServices)) {
-      console.error('Provider response is not an array');
-      return res.status(500).json({ success: false, error: 'Invalid provider response format' });
-    }
+    const filteredServices = normalizedCategory
+      ? allServices.filter((service) => mapServiceCategoryToMainCategory(service?.category || service?.type || 'Others') === normalizedCategory)
+      : allServices;
 
     // Apply pagination
-    const total = allServices.length;
+    const total = filteredServices.length;
     const start = (page - 1) * limit;
     const end = start + limit;
-    const paginatedServices = allServices.slice(start, end);
+    const paginatedServices = filteredServices.slice(start, end);
 
     console.log(`✅ Fetched ${total} services, returning ${paginatedServices.length} (page ${page}/${Math.ceil(total / limit)})`);
 
@@ -285,6 +472,48 @@ app.get('/api/provider/services', async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to proxy to provider', message: err.message });
   }
 });
+
+function mapServiceCategoryToMainCategory(serviceCategory) {
+  if (!serviceCategory) return 'Others';
+
+  const raw = String(serviceCategory).toLowerCase().trim();
+
+  const platforms = {
+    instagram: 'Instagram',
+    facebook: 'Facebook',
+    youtube: 'Youtube',
+    youtuber: 'Youtube',
+    twitter: 'Twitter',
+    'x-twitter': 'Twitter',
+    spotify: 'Spotify',
+    tiktok: 'TikTok',
+    'tik tok': 'TikTok',
+    telegram: 'Telegram',
+    linkedin: 'LinkedIn',
+    discord: 'Discord',
+    website: 'Website Traffic',
+    traffic: 'Website Traffic',
+  };
+
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+
+  const parts = raw.split(/[\/|,;–—\-]/).map((s) => s.trim()).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    for (const key in platforms) {
+      const re = new RegExp('\\b' + escapeRegExp(key) + '\\b');
+      if (re.test(part)) return platforms[key];
+    }
+  }
+
+  const priority = ['instagram','facebook','youtube','twitter','spotify','tiktok','telegram','linkedin','discord','website','traffic'];
+  for (const key of priority) {
+    const re = new RegExp('\\b' + escapeRegExp(key) + '\\b');
+    if (re.test(raw)) return platforms[key];
+  }
+
+  return 'Others';
+}
 
 // 404 handler
 app.use((req, res) => {

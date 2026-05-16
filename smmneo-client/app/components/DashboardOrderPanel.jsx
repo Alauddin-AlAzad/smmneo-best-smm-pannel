@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import toast from 'react-hot-toast';
 import { useCategoryHierarchy } from "../hooks/useCategoryHierarchy.js";
 
-const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
+const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange = null }) => {
   const [activeTab, setActiveTab] = useState("new");
   const [quantity, setQuantity] = useState("");
   const [selectedService, setSelectedService] = useState(null);
@@ -11,13 +11,29 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
   
   // Use category hierarchy hook - category comes from parent or prop
   const {
+    categorySummary,
+    totalServicesCount,
+    currentCategoryCount,
     categoryServices,
     subCategories,
     filteredServices,
     selectedSubCategory,
     loading,
     handleSelectSubCategory,
+    allSubCategories,
   } = useCategoryHierarchy(selectedCategory);
+
+  const [pendingSubCategory, setPendingSubCategory] = useState(null);
+
+  // If we have a pending subcategory after switching from Everything to a main category,
+  // apply it to the hook's selected subcategory once the main category is active.
+  useEffect(() => {
+    if (!pendingSubCategory) return;
+    if (selectedCategory && selectedCategory !== 'Everything') {
+      handleSelectSubCategory(pendingSubCategory);
+      setPendingSubCategory(null);
+    }
+  }, [pendingSubCategory, selectedCategory, handleSelectSubCategory]);
 
   // Auto-select first service when filtered services change
   useEffect(() => {
@@ -32,6 +48,29 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
       }
     }
   }, [filteredServices, selectedService]);
+
+  // Auto-select the first available subcategory when a category's subcategories load.
+  useEffect(() => {
+    if (subCategories && subCategories.length > 0 && !selectedSubCategory) {
+      handleSelectSubCategory(subCategories[0]);
+    }
+  }, [subCategories, selectedSubCategory, handleSelectSubCategory]);
+
+  // When Everything loads, auto-select the first main category -> first subcategory
+  useEffect(() => {
+    if (selectedCategory === 'Everything' && Array.isArray(allSubCategories) && allSubCategories.length > 0 && !selectedSubCategory) {
+      const firstGroup = allSubCategories[0];
+      const firstSub = firstGroup?.subcategories?.[0];
+      if (firstGroup && firstSub) {
+        if (typeof onCategoryChange === 'function') {
+          onCategoryChange(firstGroup.main);
+          setPendingSubCategory(firstSub);
+        }
+      }
+    }
+  }, [selectedCategory, allSubCategories, selectedSubCategory, onCategoryChange]);
+
+  // Note: main categories behave like Everything — user must choose a subcategory explicitly
 
   const handleSubmitOrder = (e) => {
     e.preventDefault();
@@ -52,13 +91,11 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
     setQuantity("");
   };
 
-  if (loading) {
-    return <div className="p-6 text-center">Loading services...</div>;
-  }
+  // Note: we no longer replace the whole panel while loading. Show inline subtle loading UI instead.
 
   const serviceInfo = selectedService ? {
     id: selectedService.serviceId.toString(),
-    title: `${selectedService.serviceId} ~ ${selectedService.name} ~ ≈ ৳${(selectedService.price * 55.5).toFixed(2)} per 1000`,
+    title: `${selectedService.serviceId} ~ ${selectedService.name} ~ $${selectedService.price.toFixed(4)} per 1000`,
     description: {
       link: link || "https://example.com",
       start: selectedService.dripFeed ? "0-2 hours (drip feed)" : "0-1 minute",
@@ -82,9 +119,21 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
     ],
   } : null;
 
+  function sanitizeServiceName(name) {
+    if (!name) return '';
+    let s = String(name);
+    // remove bracketed tags like [ ... ]
+    s = s.replace(/\[.*?\]/g, '');
+    // take the portion before first tilde (~) if present
+    if (s.includes('~')) s = s.split('~')[0];
+    return s.replace(/\s+/g, ' ').trim();
+  }
+
   const charge = quantity && selectedService
     ? ((parseFloat(quantity) / 1000) * selectedService.price).toFixed(4)
     : "";
+
+  
 
   return (
     <div className="grid gap-4 md:gap-6 grid-cols-1 lg:grid-cols-[1.5fr_1fr] w-full overflow-hidden">
@@ -115,37 +164,51 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
         </div>
 
         <div className="space-y-3 md:space-y-4">
-          {/* Search Bar */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="🔍 Search"
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm"
-            />
-          </div>
+            {/* Search Bar */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="🔍 Search"
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm"
+              />
+            </div>
 
-          {/* Category Dropdown - Combines main category + subcategory */}
+            {/* Category Dropdown - show main categories when Everything is selected */}
           <div>
-            <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide">Category</label>
-            <select
-              value={`${selectedCategory}||${selectedSubCategory || ''}`}
-              onChange={(e) => {
-                const [cat, subcat] = e.target.value.split('||');
-                if (subcat) {
-                  handleSelectSubCategory(subcat);
-                } else {
-                  handleSelectSubCategory(null);
-                }
-              }}
-              className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
-            >
-              <option value={`${selectedCategory}||`}>{selectedCategory}</option>
-              {subCategories.length > 0 && subCategories.map((subcat) => (
-                <option key={subcat} value={`${selectedCategory}||${subcat}`}>
-                  {selectedCategory} - {subcat}
-                </option>
-              ))}
-            </select>
+            <label className="sr-only">Category</label>
+            {selectedCategory === "Everything" ? (
+              <select
+                onChange={(e) => {
+                  const val = e.target.value; // format main||sub
+                  if (!val) return;
+                  const [main, sub] = val.split('||');
+                  if (typeof onCategoryChange === 'function') onCategoryChange(main);
+                  setPendingSubCategory(sub || null);
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
+              >
+                {Array.isArray(allSubCategories) && allSubCategories.map((group) => (
+                  group.subcategories.map((sub) => (
+                    <option key={`${group.main}||${sub}`} value={`${group.main}||${sub}`}>{group.main} - {sub}</option>
+                  ))
+                ))}
+              </select>
+            ) : (
+              <select
+                value={`${selectedCategory}||${selectedSubCategory || ''}`}
+                onChange={(e) => {
+                  const [cat, subcat] = e.target.value.split('||');
+                  if (subcat) {
+                    handleSelectSubCategory(subcat);
+                  }
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
+              >
+                {subCategories.length > 0 && subCategories.map((subcat) => (
+                  <option key={subcat} value={`${selectedCategory}||${subcat}`}>{subcat}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Service Dropdown */}
@@ -165,7 +228,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
                 <option value="">-- Select Service --</option>
                 {filteredServices.map((service) => (
                   <option key={service.serviceId} value={service.serviceId}>
-                    {service.serviceId} - {service.name} ~ ≈ ৳{(service.price * 55.5).toFixed(2)}/1k
+                    {service.serviceId} - {sanitizeServiceName(service.name)} ~ ${service.price.toFixed(4)}/1k
                   </option>
                 ))}
               </select>
@@ -179,17 +242,18 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
           {/* Selected Service Display */}
           {selectedService && (
             <div>
-              <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide">✅ Selected Service</label>
               <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm text-slate-900 w-full min-w-0 overflow-hidden shadow-sm">
                 <div className="font-bold text-violet-900 truncate text-sm">
-                  #{selectedService.serviceId} - {selectedService.name}
+                  #{selectedService.serviceId} - {sanitizeServiceName(selectedService.name)}
                 </div>
                 <div className="mt-1.5 text-xs text-violet-700">
-                  Price: ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
+                  Price: ${selectedService.price.toFixed(4)} per 1000
                 </div>
               </div>
             </div>
           )}
+
+          
 
           {/* Link */}
           <div>
@@ -249,7 +313,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
             <div className="rounded-md border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 px-3 md:px-4 py-3 md:py-3.5 text-sm md:text-base font-bold text-slate-900 min-h-[50px] flex items-center">
               {charge ? (
                 <span className="text-base md:text-lg">
-                  <span className="text-violet-600">৳</span>
+                  <span className="text-violet-600">$</span>
                   {charge}
                 </span>
               ) : (
@@ -266,7 +330,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
           >
             {submitting ? "Processing..." : "🛒 Submit Order"}
           </button>
-        </div>
+          </div>
       </div>
 
       {/* RIGHT PANEL - Service Details */}
@@ -280,7 +344,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
                   {selectedService.name}
                 </h3>
                 <p className="text-xs md:text-sm font-medium opacity-95">
-                  ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
+                  ${selectedService.price.toFixed(4)} per 1000
                 </p>
               </div>
               <span className="inline-block rounded-full bg-yellow-300 text-slate-900 px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm font-bold whitespace-nowrap">

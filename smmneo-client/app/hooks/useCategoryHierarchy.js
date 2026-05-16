@@ -25,18 +25,45 @@ export const PREDEFINED_CATEGORIES = [
  */
 export function useCategoryHierarchy(selectedCategory = "Everything") {
   const [allServices, setAllServices] = useState([]);
+  const [categorySummary, setCategorySummary] = useState([]);
+  const [allSubCategories, setAllSubCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState(null);
 
-  // Fetch all services from backend proxy
+  // Fetch only category summary or the selected category services from backend proxy
   const fetchAllServices = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await fetch('http://localhost:3000/api/provider/services?limit=10000');
-      
+      if (selectedCategory === 'Everything') {
+        const [catsResp, subsResp] = await Promise.all([
+          fetch('http://localhost:3000/api/provider/categories'),
+          fetch('http://localhost:3000/api/provider/subcategories'),
+        ]);
+
+        if (!catsResp.ok) throw new Error(`Failed to fetch categories: ${catsResp.statusText}`);
+        if (!subsResp.ok) throw new Error(`Failed to fetch subcategories: ${subsResp.statusText}`);
+
+        const cats = await catsResp.json();
+        const subs = await subsResp.json();
+
+        if (!cats.success || !Array.isArray(cats.data)) {
+          throw new Error(cats.error || 'Invalid category summary format');
+        }
+        if (!subs.success || !Array.isArray(subs.data)) {
+          throw new Error(subs.error || 'Invalid subcategory summary format');
+        }
+
+        setCategorySummary(cats.data);
+        setAllSubCategories(subs.data);
+        setAllServices([]);
+        return;
+      }
+
+      const response = await fetch(`http://localhost:3000/api/provider/services?limit=10000&category=${encodeURIComponent(selectedCategory)}`);
+
       if (!response.ok) {
         throw new Error(`Failed to fetch services: ${response.statusText}`);
       }
@@ -47,24 +74,26 @@ export function useCategoryHierarchy(selectedCategory = "Everything") {
         throw new Error(data.error || 'Invalid response format');
       }
 
-      // Handle both array and object responses from provider APIs
-      let servicesList = Array.isArray(data.data) ? data.data : Object.values(data.data);
+      const servicesList = Array.isArray(data.data) ? data.data : Object.values(data.data);
 
       // Normalize service data structure
       const normalizedServices = servicesList.map((service, index) => {
-        const serviceId = service.service_id || service.serviceId || service.id || index;
+        const serviceId = normalizeServiceId(service, index);
         const name = service.name || service.title || 'Unknown Service';
-        const category = service.category || service.type || 'Others';
+        const rawCategory = service.category || service.type || 'Others';
         const price = parseFloat(service.rate || service.price || 0);
         const minOrder = parseInt(service.min || service.minQuantity || 1);
         const maxOrder = parseInt(service.max || service.maxQuantity || 10000);
         const refill = service.refill === 1 || service.refill === true || service.refill === 'true';
+        const category = mapServiceCategoryToMainCategory(rawCategory);
 
         return {
           serviceId,
           id: serviceId,
           name,
-          category: mapServiceCategoryToMainCategory(category),
+          category,
+          rawCategory,
+          subCategory: extractSubCategory(rawCategory, category, name),
           price,
           minQuantity: minOrder,
           maxQuantity: maxOrder,
@@ -77,15 +106,17 @@ export function useCategoryHierarchy(selectedCategory = "Everything") {
       });
 
       setAllServices(normalizedServices);
+      setCategorySummary([]);
       console.log(`✅ Loaded ${normalizedServices.length} services`);
     } catch (err) {
       console.error('❌ Error fetching services:', err);
       setError(err.message || 'Failed to fetch services');
       setAllServices([]);
+      setCategorySummary([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedCategory]);
 
   // Fetch services on mount
   useEffect(() => {
@@ -100,7 +131,7 @@ export function useCategoryHierarchy(selectedCategory = "Everything") {
   // Get services for selected category
   const categoryServices = useMemo(() => {
     if (!selectedCategory || selectedCategory === "Everything") {
-      return allServices;
+      return [];
     }
     
     return allServices.filter((service) => 
@@ -108,11 +139,14 @@ export function useCategoryHierarchy(selectedCategory = "Everything") {
     );
   }, [allServices, selectedCategory]);
 
+  const totalServicesCount = allServices.length;
+  const currentCategoryCount = categoryServices.length;
+
   // Get unique subcategories for selected category
   const subCategories = useMemo(() => {
     const subs = new Set();
     categoryServices.forEach((service) => {
-      const subCat = extractSubCategory(service.name, service.category);
+      const subCat = service.subCategory || extractSubCategory(service.rawCategory, service.category, service.name);
       subs.add(subCat);
     });
     return Array.from(subs).sort();
@@ -125,7 +159,7 @@ export function useCategoryHierarchy(selectedCategory = "Everything") {
     }
 
     return categoryServices.filter((service) => {
-      const subCat = extractSubCategory(service.name, service.category);
+      const subCat = service.subCategory || extractSubCategory(service.rawCategory, service.category, service.name);
       return subCat === selectedSubCategory;
     });
   }, [categoryServices, selectedSubCategory]);
@@ -141,6 +175,10 @@ export function useCategoryHierarchy(selectedCategory = "Everything") {
     
     // Data
     allServices,
+    categorySummary,
+    allSubCategories,
+    totalServicesCount,
+    currentCategoryCount,
     categoryServices,
     subCategories,
     filteredServices,
@@ -164,28 +202,70 @@ export function useCategoryHierarchy(selectedCategory = "Everything") {
 function mapServiceCategoryToMainCategory(serviceCategory) {
   if (!serviceCategory) return 'Others';
 
-  const category = serviceCategory.toLowerCase().trim();
+  const raw = String(serviceCategory).toLowerCase().trim();
 
-  // Direct matches
-  if (category.includes('instagram')) return 'Instagram';
-  if (category.includes('facebook')) return 'Facebook';
-  if (category.includes('youtube') || category.includes('youtuber')) return 'Youtube';
-  if (category.includes('twitter') || category.includes('x')) return 'Twitter';
-  if (category.includes('spotify')) return 'Spotify';
-  if (category.includes('tiktok') || category.includes('tik tok')) return 'TikTok';
-  if (category.includes('telegram')) return 'Telegram';
-  if (category.includes('linkedin')) return 'LinkedIn';
-  if (category.includes('discord')) return 'Discord';
-  if (category.includes('website') || category.includes('traffic') || category.includes('traffic')) return 'Website Traffic';
+  const platforms = {
+    instagram: 'Instagram',
+    facebook: 'Facebook',
+    youtube: 'Youtube',
+    youtuber: 'Youtube',
+    twitter: 'Twitter',
+    'x-twitter': 'Twitter',
+    spotify: 'Spotify',
+    tiktok: 'TikTok',
+    'tik tok': 'TikTok',
+    telegram: 'Telegram',
+    linkedin: 'LinkedIn',
+    discord: 'Discord',
+    website: 'Website Traffic',
+    traffic: 'Website Traffic',
+  };
+
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Split by common separators and prefer the most specific segment (last segment)
+  const parts = raw.split(/[\/|,;–—\-]/).map((s) => s.trim()).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    for (const key in platforms) {
+      const re = new RegExp('\\b' + escapeRegExp(key) + '\\b');
+      if (re.test(part)) return platforms[key];
+    }
+  }
+
+  // Fallback: search the whole string in priority order
+  const priority = ['instagram','facebook','youtube','twitter','spotify','tiktok','telegram','linkedin','discord','website','traffic'];
+  for (const key of priority) {
+    const re = new RegExp('\\b' + escapeRegExp(key) + '\\b');
+    if (re.test(raw)) return platforms[key];
+  }
 
   return 'Others';
+}
+
+function normalizeServiceId(service, fallbackIndex) {
+  const candidate = service?.service ?? service?.service_id ?? service?.serviceId ?? service?.id;
+  if (candidate !== undefined && candidate !== null && `${candidate}`.trim() !== '') {
+    return candidate;
+  }
+
+  return fallbackIndex;
 }
 
 /**
  * Helper: Extract subcategory from service name
  * Extracts the main service type (e.g., "Post Likes", "Story Views", "Post Reaction")
  */
-function extractSubCategory(serviceName, mainCategory) {
+function extractSubCategory(serviceCategory, mainCategory, serviceName) {
+  const rawCategory = (serviceCategory || '').trim();
+  const normalizedMain = (mainCategory || '').trim();
+
+  if (rawCategory) {
+    if (!normalizedMain || rawCategory.toLowerCase() !== normalizedMain.toLowerCase()) {
+      return rawCategory;
+    }
+  }
+
   if (!serviceName) return mainCategory;
 
   // Remove the main category prefix if it exists

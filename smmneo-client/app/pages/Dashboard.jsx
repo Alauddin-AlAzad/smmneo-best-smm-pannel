@@ -32,7 +32,7 @@ const Dashboard = () => {
       <main className={`dashboard-main min-w-0 px-[10px] py-6 pt-[96px] transition-all duration-300 ${sidebarOpen ? "lg:ml-[260px] lg:w-[calc(100%-260px)]" : "lg:ml-0 lg:w-full"}`}>
         <DashboardMetrics />
         <DashboardCategoryTabs onCategoryChange={setSelectedCategory} />
-        <DashboardOrderPanel selectedCategory={selectedCategory} />
+        <DashboardOrderPanel selectedCategory={selectedCategory} onCategoryChange={setSelectedCategory} />
         <DashboardServices />
       </main>
     </div>
