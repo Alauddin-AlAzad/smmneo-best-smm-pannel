@@ -264,78 +264,103 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
       </div>
 
       {/* RIGHT PANEL - Service Details */}
-      <div className="rounded-[3px] border border-slate-200/70 bg-white p-4 md:p-6 shadow-sm w-full min-w-0 overflow-x-hidden overflow-y-auto max-h-[600px]">
-        {selectedService ? (
-          <>
-            {/* Service Header */}
-            <div className="rounded-md bg-gradient-to-br from-violet-600 via-violet-500 to-fuchsia-500 px-4 md:px-5 py-4 md:py-5 text-white mb-4 md:mb-5">
-              <div className="flex items-start gap-3 mb-2">
-                <span className="inline-block rounded-full bg-yellow-300 px-3 md:px-4 py-1 text-xs md:text-sm font-bold text-slate-900 whitespace-nowrap">
-                  # {selectedService.serviceId}
-                </span>
-              </div>
-              <p className="text-xs md:text-sm font-semibold leading-snug break-words">
-                {selectedService.name}
-              </p>
-              <p className="text-xs md:text-sm mt-2 font-medium opacity-95">
-                Price: ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
-              </p>
-            </div>
-
-            {/* Service Details */}
-            <div className="space-y-4 md:space-y-5 text-xs md:text-sm text-slate-700">
-              {/* Details Grid */}
-              <div className="bg-slate-50 rounded-md p-3 md:p-4 space-y-2 border border-slate-200">
-                <div className="flex justify-between items-start gap-2">
-                  <span className="font-semibold text-slate-800">Link:</span>
-                  <span className="text-right break-words">{link || '(Enter link above)'}</span>
-                </div>
-                <div className="flex justify-between items-start gap-2">
-                  <span className="font-semibold text-slate-800">Start:</span>
-                  <span className="text-right">{selectedService.dripFeed ? 'Instant to 24 hours' : 'Instant to 1 minute'}</span>
-                </div>
-                <div className="flex justify-between items-start gap-2">
-                  <span className="font-semibold text-slate-800">Speed:</span>
-                  <span className="text-right">{selectedService.dripFeed ? '3k-5k/day' : '100k+/day'}</span>
-                </div>
-                <div className="flex justify-between items-start gap-2">
-                  <span className="font-semibold text-slate-800">Refill:</span>
-                  <span className="text-right font-semibold">{selectedService.refill ? '✅ Yes (30 days)' : '❌ No'}</span>
-                </div>
-              </div>
-
-              {/* Important Notes */}
+      {selectedService ? (
+        <div className="rounded-[3px] border border-slate-200/70 bg-white p-0 shadow-sm w-full min-w-0 overflow-hidden flex flex-col">
+          {/* Service Header - Purple Gradient */}
+          <div className="bg-gradient-to-br from-violet-600 via-fuchsia-500 to-rose-500 px-5 md:px-6 py-5 md:py-6 text-white relative">
+            <div className="flex items-start justify-between gap-3 mb-3">
               <div>
-                <p className="font-bold text-slate-900 mb-2 md:mb-3">⚠️ Important Notes:</p>
-                <ul className="space-y-1.5 md:space-y-2 bg-amber-50 border border-amber-200 rounded-md p-3 md:p-4">
-                  <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
-                    <span className="mt-0.5 shrink-0 text-amber-600 font-bold">•</span>
-                    <span className="break-words text-slate-700">Do not place orders for private accounts or private links.</span>
-                  </li>
-                  <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
-                    <span className="mt-0.5 shrink-0 text-amber-600 font-bold">•</span>
-                    <span className="break-words text-slate-700">Avoid placing a second order on the same link until the current order is fully completed.</span>
-                  </li>
-                  <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
-                    <span className="mt-0.5 shrink-0 text-amber-600 font-bold">•</span>
-                    <span className="break-words text-slate-700">When experiencing high demand, starting speed may vary.</span>
-                  </li>
-                  {selectedService.cancel && (
-                    <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
-                      <span className="mt-0.5 shrink-0 text-green-600 font-bold">✓</span>
-                      <span className="break-words text-slate-700">Cancellation available up to 90% completion.</span>
-                    </li>
-                  )}
-                </ul>
+                <h3 className="text-lg md:text-xl font-bold leading-tight mb-1">
+                  {selectedService.name}
+                </h3>
+                <p className="text-xs md:text-sm font-medium opacity-95">
+                  ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
+                </p>
+              </div>
+              <span className="inline-block rounded-full bg-yellow-300 text-slate-900 px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm font-bold whitespace-nowrap">
+                # {selectedService.serviceId}
+              </span>
+            </div>
+          </div>
+
+          {/* Details Section */}
+          <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
+            {/* Key Details */}
+            <div className="bg-slate-50 rounded-lg p-4 md:p-5 border border-slate-200 space-y-3">
+              <h4 className="font-bold text-slate-900 text-xs md:text-sm mb-3">Description</h4>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-slate-600 font-semibold mb-1">Link</p>
+                  <p className="text-xs md:text-sm text-slate-800 font-medium break-words">
+                    {link || 'Profile/Post URL'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-600 font-semibold mb-1">Start</p>
+                  <p className="text-xs md:text-sm text-slate-800 font-medium">
+                    {selectedService.dripFeed ? 'Instant-24hrs' : 'Instant-1min'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                <div>
+                  <p className="text-xs text-slate-600 font-semibold mb-1">Speed</p>
+                  <p className="text-xs md:text-sm text-slate-800 font-medium">
+                    {selectedService.dripFeed ? '3k-5k/day' : '100k+/day'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-600 font-semibold mb-1">Refill</p>
+                  <p className="text-xs md:text-sm text-slate-800 font-bold">
+                    {selectedService.refill ? '✅ 30 Days' : '❌ No Refill'}
+                  </p>
+                </div>
               </div>
             </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-center h-64 text-center text-slate-500">
-            <p className="text-sm md:text-base">Select a service to view details →</p>
+
+            {/* Quality & Important Notes */}
+            <div>
+              <h4 className="font-bold text-slate-900 text-xs md:text-sm mb-3">Quality</h4>
+              <p className="text-xs md:text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                High Quality Service
+              </p>
+            </div>
+
+            {/* Important Notes */}
+            <div>
+              <h4 className="font-bold text-slate-900 text-xs md:text-sm mb-3">⚠️ Important Notes:</h4>
+              <ul className="space-y-2 text-xs md:text-sm text-slate-700">
+                <li className="flex gap-2">
+                  <span className="shrink-0 text-amber-600 font-bold mt-0.5">•</span>
+                  <span>When service is experiencing high demand, starting speed may vary.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="shrink-0 text-amber-600 font-bold mt-0.5">•</span>
+                  <span>Avoid placing a second order on the same link until completed.</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="shrink-0 text-amber-600 font-bold mt-0.5">•</span>
+                  <span>Do not place orders for private accounts or links.</span>
+                </li>
+                {selectedService.cancel && (
+                  <li className="flex gap-2">
+                    <span className="shrink-0 text-green-600 font-bold mt-0.5">✓</span>
+                    <span>Cancellation available up to 90% completion.</span>
+                  </li>
+                )}
+              </ul>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="rounded-[3px] border border-slate-200/70 bg-white p-6 md:p-8 shadow-sm w-full min-w-0 flex items-center justify-center h-64 md:h-full">
+          <div className="text-center">
+            <p className="text-sm md:text-base text-slate-500">👈 Select a service to view details</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
