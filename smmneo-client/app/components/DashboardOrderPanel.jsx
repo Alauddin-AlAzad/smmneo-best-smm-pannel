@@ -268,62 +268,62 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
         {selectedService ? (
           <>
             {/* Service Header */}
-            <div className="rounded-md bg-gradient-to-br from-violet-600 via-violet-500 to-fuchsia-500 px-4 md:px-5 py-4 md:py-5 text-white mb-4 md:mb-5\">
-              <div className="flex items-start gap-3 mb-2\">
-                <span className="inline-block rounded-full bg-yellow-300 px-3 md:px-4 py-1 text-xs md:text-sm font-bold text-slate-900 whitespace-nowrap\">
+            <div className="rounded-md bg-gradient-to-br from-violet-600 via-violet-500 to-fuchsia-500 px-4 md:px-5 py-4 md:py-5 text-white mb-4 md:mb-5">
+              <div className="flex items-start gap-3 mb-2">
+                <span className="inline-block rounded-full bg-yellow-300 px-3 md:px-4 py-1 text-xs md:text-sm font-bold text-slate-900 whitespace-nowrap">
                   # {selectedService.serviceId}
                 </span>
               </div>
-              <p className=\"text-xs md:text-sm font-semibold leading-snug break-words\">
+              <p className="text-xs md:text-sm font-semibold leading-snug break-words">
                 {selectedService.name}
               </p>
-              <p className=\"text-xs md:text-sm mt-2 font-medium opacity-95\">
+              <p className="text-xs md:text-sm mt-2 font-medium opacity-95">
                 Price: ≈ ৳{(selectedService.price * 55.5).toFixed(2)} per 1000
               </p>
             </div>
 
             {/* Service Details */}
-            <div className=\"space-y-4 md:space-y-5 text-xs md:text-sm text-slate-700\">
+            <div className="space-y-4 md:space-y-5 text-xs md:text-sm text-slate-700">
               {/* Details Grid */}
-              <div className=\"bg-slate-50 rounded-md p-3 md:p-4 space-y-2 border border-slate-200\">
-                <div className=\"flex justify-between items-start gap-2\">
-                  <span className=\"font-semibold text-slate-800\">Link:</span>
-                  <span className=\"text-right break-words\">{link || '(Enter link above)'}</span>
+              <div className="bg-slate-50 rounded-md p-3 md:p-4 space-y-2 border border-slate-200">
+                <div className="flex justify-between items-start gap-2">
+                  <span className="font-semibold text-slate-800">Link:</span>
+                  <span className="text-right break-words">{link || '(Enter link above)'}</span>
                 </div>
-                <div className=\"flex justify-between items-start gap-2\">
-                  <span className=\"font-semibold text-slate-800\">Start:</span>
-                  <span className=\"text-right\">{selectedService.dripFeed ? 'Instant to 24 hours' : 'Instant to 1 minute'}</span>
+                <div className="flex justify-between items-start gap-2">
+                  <span className="font-semibold text-slate-800">Start:</span>
+                  <span className="text-right">{selectedService.dripFeed ? 'Instant to 24 hours' : 'Instant to 1 minute'}</span>
                 </div>
-                <div className=\"flex justify-between items-start gap-2\">
-                  <span className=\"font-semibold text-slate-800\">Speed:</span>
-                  <span className=\"text-right\">{selectedService.dripFeed ? '3k-5k/day' : '100k+/day'}</span>
+                <div className="flex justify-between items-start gap-2">
+                  <span className="font-semibold text-slate-800">Speed:</span>
+                  <span className="text-right">{selectedService.dripFeed ? '3k-5k/day' : '100k+/day'}</span>
                 </div>
-                <div className=\"flex justify-between items-start gap-2\">
-                  <span className=\"font-semibold text-slate-800\">Refill:</span>
-                  <span className=\"text-right font-semibold\">{selectedService.refill ? '✅ Yes (30 days)' : '❌ No'}</span>
+                <div className="flex justify-between items-start gap-2">
+                  <span className="font-semibold text-slate-800">Refill:</span>
+                  <span className="text-right font-semibold">{selectedService.refill ? '✅ Yes (30 days)' : '❌ No'}</span>
                 </div>
               </div>
 
               {/* Important Notes */}
               <div>
-                <p className=\"font-bold text-slate-900 mb-2 md:mb-3\">⚠️ Important Notes:</p>
-                <ul className=\"space-y-1.5 md:space-y-2 bg-amber-50 border border-amber-200 rounded-md p-3 md:p-4\">
-                  <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
-                    <span className=\"mt-0.5 shrink-0 text-amber-600 font-bold\">•</span>
-                    <span className=\"break-words text-slate-700\">Do not place orders for private accounts or private links.</span>
+                <p className="font-bold text-slate-900 mb-2 md:mb-3">⚠️ Important Notes:</p>
+                <ul className="space-y-1.5 md:space-y-2 bg-amber-50 border border-amber-200 rounded-md p-3 md:p-4">
+                  <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
+                    <span className="mt-0.5 shrink-0 text-amber-600 font-bold">•</span>
+                    <span className="break-words text-slate-700">Do not place orders for private accounts or private links.</span>
                   </li>
-                  <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
-                    <span className=\"mt-0.5 shrink-0 text-amber-600 font-bold\">•</span>
-                    <span className=\"break-words text-slate-700\">Avoid placing a second order on the same link until the current order is fully completed.</span>
+                  <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
+                    <span className="mt-0.5 shrink-0 text-amber-600 font-bold">•</span>
+                    <span className="break-words text-slate-700">Avoid placing a second order on the same link until the current order is fully completed.</span>
                   </li>
-                  <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
-                    <span className=\"mt-0.5 shrink-0 text-amber-600 font-bold\">•</span>
-                    <span className=\"break-words text-slate-700\">When experiencing high demand, starting speed may vary.</span>
+                  <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
+                    <span className="mt-0.5 shrink-0 text-amber-600 font-bold">•</span>
+                    <span className="break-words text-slate-700">When experiencing high demand, starting speed may vary.</span>
                   </li>
                   {selectedService.cancel && (
-                    <li className=\"flex gap-2 w-full min-w-0 text-xs md:text-sm\">
-                      <span className=\"mt-0.5 shrink-0 text-green-600 font-bold\">✓</span>
-                      <span className=\"break-words text-slate-700\">Cancellation available up to 90% completion.</span>
+                    <li className="flex gap-2 w-full min-w-0 text-xs md:text-sm">
+                      <span className="mt-0.5 shrink-0 text-green-600 font-bold">✓</span>
+                      <span className="break-words text-slate-700">Cancellation available up to 90% completion.</span>
                     </li>
                   )}
                 </ul>
@@ -331,8 +331,8 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything" }) => {
             </div>
           </>
         ) : (
-          <div className=\"flex items-center justify-center h-64 text-center text-slate-500\">
-            <p className=\"text-sm md:text-base\">Select a service to view details →</p>
+          <div className="flex items-center justify-center h-64 text-center text-slate-500">
+            <p className="text-sm md:text-base">Select a service to view details →</p>
           </div>
         )}
       </div>
