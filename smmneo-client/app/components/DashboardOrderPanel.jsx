@@ -8,6 +8,7 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
   const [selectedService, setSelectedService] = useState(null);
   const [link, setLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState(null); // Track which dropdown is open
   
   // Use category hierarchy hook - category comes from parent or prop
   const {
@@ -72,6 +73,17 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
 
   // Note: main categories behave like Everything — user must choose a subcategory explicitly
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (openDropdown && !e.target.closest('[class*="relative"]')) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openDropdown]);
+
   const handleSubmitOrder = (e) => {
     e.preventDefault();
 
@@ -133,6 +145,43 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
     ? ((parseFloat(quantity) / 1000) * selectedService.price).toFixed(4)
     : "";
 
+  // Custom Dropdown Component
+  const CustomDropdown = ({ id, label, value, options, onChange, isOpen, setIsOpen, getDisplayText }) => {
+    return (
+      <div className="relative">
+        {label && <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide sr-only">{label}</label>}
+        <button
+          onClick={() => setOpenDropdown(openDropdown === id ? null : id)}
+          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer text-left flex items-center justify-between hover:bg-slate-50"
+        >
+          <span className="truncate">{getDisplayText(value)}</span>
+          <span className="ml-2 flex-shrink-0 text-slate-400">▼</span>
+        </button>
+        
+        {openDropdown === id && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpenDropdown(null);
+                }}
+                className={`w-full px-4 py-2.5 text-left text-xs md:text-sm border-b border-slate-100 last:border-b-0 transition whitespace-normal break-words ${
+                  value === option.value
+                    ? 'bg-violet-100 text-violet-900 font-bold'
+                    : 'hover:bg-slate-50 text-slate-900'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   
 
   return (
@@ -175,85 +224,91 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
 
             {/* Category Dropdown - show main categories when Everything is selected */}
           <div>
-            <label className="sr-only">Category</label>
             {selectedCategory === "Everything" ? (
-              <select
-                onChange={(e) => {
-                  const val = e.target.value; // format main||sub
+              <CustomDropdown
+                id="categoryDropdown"
+                value={`${selectedCategory}||`}
+                options={Array.isArray(allSubCategories) ? allSubCategories.flatMap((group) =>
+                  group.subcategories.map((sub) => ({
+                    value: `${group.main}||${sub}`,
+                    label: `${group.main} - ${sub}`,
+                  }))
+                ) : []}
+                onChange={(val) => {
                   if (!val) return;
                   const [main, sub] = val.split('||');
                   if (typeof onCategoryChange === 'function') onCategoryChange(main);
                   setPendingSubCategory(sub || null);
                 }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
-              >
-                {Array.isArray(allSubCategories) && allSubCategories.map((group) => (
-                  group.subcategories.map((sub) => (
-                    <option key={`${group.main}||${sub}`} value={`${group.main}||${sub}`}>{group.main} - {sub}</option>
-                  ))
-                ))}
-              </select>
+                isOpen={openDropdown === "categoryDropdown"}
+                setIsOpen={setOpenDropdown}
+                getDisplayText={(val) => {
+                  const match = Array.isArray(allSubCategories) 
+                    ? allSubCategories.find(g => val.startsWith(g.main))
+                    : null;
+                  if (!match) return "Select Category";
+                  const [main, sub] = val.split('||');
+                  return `${main} - ${sub || ''}`;
+                }}
+              />
             ) : (
-              <select
+              <CustomDropdown
+                id="categoryDropdown"
                 value={`${selectedCategory}||${selectedSubCategory || ''}`}
-                onChange={(e) => {
-                  const [cat, subcat] = e.target.value.split('||');
+                options={subCategories.map((subcat) => ({
+                  value: `${selectedCategory}||${subcat}`,
+                  label: subcat,
+                }))}
+                onChange={(val) => {
+                  const [cat, subcat] = val.split('||');
                   if (subcat) {
                     handleSelectSubCategory(subcat);
                   }
                 }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
-              >
-                {subCategories.length > 0 && subCategories.map((subcat) => (
-                  <option key={subcat} value={`${selectedCategory}||${subcat}`}>{subcat}</option>
-                ))}
-              </select>
+                isOpen={openDropdown === "categoryDropdown"}
+                setIsOpen={setOpenDropdown}
+                getDisplayText={(val) => {
+                  const [cat, sub] = val.split('||');
+                  return sub || selectedCategory;
+                }}
+              />
             )}
           </div>
 
           {/* Service Dropdown */}
           <div>
-            <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide">Service</label>
             {filteredServices.length > 0 ? (
-              <select
-                value={selectedService?.serviceId || ""}
-                onChange={(e) => {
+              <CustomDropdown
+                id="serviceDropdown"
+                label="Service"
+                value={String(selectedService?.serviceId || "")}
+                options={filteredServices.map((service) => ({
+                  value: String(service.serviceId),
+                  label: `${service.serviceId} - ${service.name} ~ $${service.price.toFixed(4)}/1k`,
+                }))}
+                onChange={(val) => {
                   const service = filteredServices.find(
-                    (s) => String(s.serviceId) === e.target.value
+                    (s) => String(s.serviceId) === val
                   );
                   if (service) setSelectedService(service);
                 }}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer"
-              >
-                <option value="">-- Select Service --</option>
-                {filteredServices.map((service) => (
-                  <option key={service.serviceId} value={service.serviceId}>
-                    {service.serviceId} - {sanitizeServiceName(service.name)} ~ ${service.price.toFixed(4)}/1k
-                  </option>
-                ))}
-              </select>
+                isOpen={openDropdown === "serviceDropdown"}
+                setIsOpen={setOpenDropdown}
+                getDisplayText={(val) => {
+                  if (!val || val === "") return "-- Select Service --";
+                  const service = filteredServices.find(
+                    (s) => String(s.serviceId) === String(val)
+                  );
+                  if (!service) return "-- Select Service --";
+                  return `${service.serviceId} - ${service.name}`;
+                }}
+              />
             ) : (
               <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-500 text-center">
                 No services available
               </div>
             )}
           </div>
-
-          {/* Selected Service Display */}
-          {selectedService && (
-            <div>
-              <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 md:px-5 py-3 md:py-3.5 text-xs md:text-sm text-slate-900 w-full min-w-0 overflow-hidden shadow-sm">
-                <div className="font-bold text-violet-900 truncate text-sm">
-                  #{selectedService.serviceId} - {sanitizeServiceName(selectedService.name)}
-                </div>
-                <div className="mt-1.5 text-xs text-violet-700">
-                  Price: ${selectedService.price.toFixed(4)} per 1000
-                </div>
-              </div>
-            </div>
-          )}
-
-          
 
           {/* Link */}
           <div>
@@ -337,17 +392,14 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
       {selectedService ? (
         <div className="rounded-[3px] border border-slate-200/70 bg-white p-0 shadow-sm w-full min-w-0 overflow-hidden flex flex-col">
           {/* Service Header - Purple Gradient */}
-          <div className="bg-gradient-to-br from-violet-600 via-fuchsia-500 to-rose-500 px-5 md:px-6 py-5 md:py-6 text-white relative">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <h3 className="text-lg md:text-xl font-bold leading-tight mb-1">
+          <div className="bg-gradient-to-br from-violet-600 via-fuchsia-500 to-rose-500 px-4 md:px-6 py-4 md:py-6 text-white relative">
+            <div className="flex flex-wrap items-start gap-2 md:gap-3">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm md:text-xl font-bold leading-tight break-words">
                   {selectedService.name}
                 </h3>
-                <p className="text-xs md:text-sm font-medium opacity-95">
-                  ${selectedService.price.toFixed(4)} per 1000
-                </p>
               </div>
-              <span className="inline-block rounded-full bg-yellow-300 text-slate-900 px-3 md:px-4 py-1.5 md:py-2 text-xs md:text-sm font-bold whitespace-nowrap">
+              <span className="inline-block rounded-full bg-yellow-300 text-slate-900 px-2 md:px-4 py-1 md:py-2 text-xs font-bold flex-shrink-0">
                 # {selectedService.serviceId}
               </span>
             </div>
