@@ -1,6 +1,29 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { fetchAdminSettings } from '../../../services/adminDashboardAPI.js';
+import { getAdminDisplayName, getAdminSubtitle } from '../../../utils/adminProfile.js';
 
 const Navbar = ({ pageTitle, isOpen, setIsOpen }) => {
+  const [settings, setSettings] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetchAdminSettings()
+      .then((data) => {
+        if (mounted) setSettings(data || null);
+      })
+      .catch(() => {
+        if (mounted) setSettings(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const adminName = getAdminDisplayName(settings);
+  const adminSubtitle = getAdminSubtitle(settings);
+
   return (
     <header className="sticky top-0 z-30 h-16 border-b border-slate-200 bg-white">
       <div className="flex h-full items-center justify-between px-4 md:px-6">
@@ -39,11 +62,11 @@ const Navbar = ({ pageTitle, isOpen, setIsOpen }) => {
         {/* Right Section - Profile & Actions */}
         <div className="flex items-center gap-3 pl-4 border-l border-slate-200 group">
           <div className="text-right hidden sm:block cursor-pointer">
-            <p className="text-sm font-semibold text-slate-900">Admin User</p>
-            <p className="text-xs text-slate-500">Administrator</p>
+            <p className="text-sm font-semibold text-slate-900">{adminName}</p>
+            <p className="text-xs text-slate-500">{adminSubtitle}</p>
           </div>
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center text-white font-bold text-sm shadow-md cursor-pointer">
-            A
+            {adminName?.[0]?.toUpperCase() || 'A'}
           </div>
         </div>
       </div>

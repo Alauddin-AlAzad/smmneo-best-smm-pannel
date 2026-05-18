@@ -9,6 +9,7 @@ const AdminServices = () => {
   const [providerSettings, setProviderSettings] = useState(null);
   const [providers, setProviders] = useState([]);
   const [selectedProviderId, setSelectedProviderId] = useState('');
+  const [profitPercentage, setProfitPercentage] = useState('0');
   const [selectedServices, setSelectedServices] = useState(new Set());
   const [selectAllAcrossApi, setSelectAllAcrossApi] = useState(false);
   const [deselectedServices, setDeselectedServices] = useState(new Set());
@@ -32,7 +33,9 @@ const AdminServices = () => {
       const data = await response.json();
       if (data && data.success && data.data && data.data.provider) {
         setProviderSettings(data.data.provider);
+        setProfitPercentage(String(data.data.provider.defaultProfitPercentage ?? data.data.provider.profitPercentage ?? 0));
       } else {
+        setProfitPercentage('0');
         toast.error('No provider configured. Please set provider settings first.');
       }
     } catch (error) {
@@ -70,10 +73,17 @@ const AdminServices = () => {
     }
 
     try {
+      const shouldForceReload = providerSettings?.apiUrl === provider?.apiUrl;
+      const normalizedProfitPercentage = Number.parseFloat(profitPercentage) || 0;
+      const providerPayload = {
+        ...provider,
+        defaultProfitPercentage: normalizedProfitPercentage,
+      };
+
       const response = await fetch('http://localhost:3000/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider }),
+        body: JSON.stringify({ provider: providerPayload }),
       });
 
       const data = await response.json();
@@ -81,8 +91,13 @@ const AdminServices = () => {
         const activeProvider = data.data?.provider || provider;
         setProviderSettings(activeProvider);
         setSelectedProviderId(provider._id || '');
+        setProfitPercentage(String(activeProvider.defaultProfitPercentage ?? activeProvider.profitPercentage ?? normalizedProfitPercentage));
         setCurrentPage(1);
         setAllLoadedServices([]);
+
+        if (shouldForceReload) {
+          await fetchServices(1, 50, { admin: true });
+        }
 
         if (!silent) {
           toast.success(`Switched to ${provider.name}`);
@@ -108,11 +123,22 @@ const AdminServices = () => {
     await activateProvider(provider);
   };
 
+  const handleSaveProfitPercentage = async () => {
+    const provider = providers.find((item) => item._id === selectedProviderId) || providerSettings;
+
+    if (!provider) {
+      toast.error('Please select a provider first');
+      return;
+    }
+
+    await activateProvider(provider);
+  };
+
   // Load more services to current loaded set
   const handleLoadMore = async () => {
     const nextPage = currentPage + 1;
     try {
-      await fetchServices(nextPage, pagination.limit);
+      await fetchServices(nextPage, pagination.limit, { admin: true });
       setCurrentPage(nextPage);
     } catch (err) {
       toast.error('Failed to load more services');
@@ -174,7 +200,7 @@ const AdminServices = () => {
       setSelectAllAcrossApi(false);
       setSelectedServices(new Set());
       setDeselectedServices(new Set());
-      fetchServices(1, 50);
+      fetchServices(1, 50, { admin: true });
     }
   }, [providerSettings?.apiUrl, fetchServices]);
 
@@ -315,6 +341,7 @@ const AdminServices = () => {
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 mb-1">Switch API Provider</h3>
+                
                 <p className="text-sm text-slate-600">Choose a saved provider and make it active for services syncing.</p>
               </div>
               {loadingProviders && <span className="text-xs font-medium text-slate-500">Loading providers...</span>}
@@ -347,11 +374,52 @@ const AdminServices = () => {
             )}
           </div>
 
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 mb-1">Profit Percentage</h3>
+                <p className="text-sm text-slate-600">Set the markup used to calculate selling prices from provider prices.</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-3 items-stretch">
+              <div className="flex-1">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Markup %</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={profitPercentage}
+                  onChange={(e) => setProfitPercentage(e.target.value)}
+                  className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-lg focus:border-violet-500 outline-none bg-white"
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 md:min-w-[280px] flex flex-col justify-center">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">How it works</p>
+                <p className="text-sm text-slate-700">
+                  Selling price = provider price + {profitPercentage || 0}% margin
+                </p>
+              </div>
+
+              <button
+                onClick={handleSaveProfitPercentage}
+                className="px-5 py-2.5 bg-slate-900 text-white rounded-lg font-semibold hover:bg-slate-800 transition md:self-end"
+              >
+                Save Profit Margin
+              </button>
+            </div>
+          </div>
+
           {/* Display Provider Info */}
           {providerSettings && (
             <div className="bg-gradient-to-r from-violet-50 to-violet-100 rounded-xl border border-violet-200 p-6 shadow-sm">
               <h3 className="text-sm font-bold text-violet-900 mb-2">🔗 Active Provider</h3>
               <p className="text-violet-700">{providerSettings.apiUrl}</p>
+              <p className="mt-2 text-sm text-violet-800">
+                Profit margin: <span className="font-bold">{profitPercentage || 0}%</span>
+              </p>
             </div>
           )}
 
@@ -397,7 +465,7 @@ const AdminServices = () => {
           {error && (
             <ErrorState
               error={error}
-              onRetry={() => fetchServices(1, 50)}
+              onRetry={() => fetchServices(1, 50, { admin: true })}
             />
           )}
 
@@ -450,7 +518,8 @@ const AdminServices = () => {
                             <th className="px-4 py-3 text-left font-semibold">Service ID</th>
                             <th className="px-4 py-3 text-left font-semibold">Service Name</th>
                             <th className="px-4 py-3 text-left font-semibold">Type</th>
-                            <th className="px-4 py-3 text-left font-semibold">Rate</th>
+                            <th className="px-4 py-3 text-left font-semibold">Original Price</th>
+                            <th className="px-4 py-3 text-left font-semibold">Selling Price</th>
                             <th className="px-4 py-3 text-left font-semibold">Min</th>
                             <th className="px-4 py-3 text-left font-semibold">Max</th>
                             <th className="px-4 py-3 text-left font-semibold">Refill</th>
@@ -478,7 +547,8 @@ const AdminServices = () => {
                                 <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{serviceId}</td>
                                 <td className="px-4 py-3 text-slate-900 min-w-[280px]">{service.name}</td>
                                 <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{service.type || '-'}</td>
-                                <td className="px-4 py-3 text-green-700 font-semibold whitespace-nowrap">${(parseFloat(service.rate) || 0).toFixed(4)}</td>
+                                <td className="px-4 py-3 text-green-700 font-semibold whitespace-nowrap">${(parseFloat(service.providerPrice ?? service.rate ?? service.price) || 0).toFixed(4)}</td>
+                                <td className="px-4 py-3 text-green-700 font-semibold whitespace-nowrap">${(parseFloat(service.sellingPrice ?? service.price ?? 0) || 0).toFixed(4)}</td>
                                 <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{service.min ?? '-'}</td>
                                 <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{service.max ?? '-'}</td>
                                 <td className="px-4 py-3 whitespace-nowrap">

@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router';
 import { sidebarMenuItems } from '../../../data/adminDashboardData.js';
+import { fetchAdminSettings } from '../../../services/adminDashboardAPI.js';
+import { getAdminDisplayName, getAdminSubtitle } from '../../../utils/adminProfile.js';
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
   const location = useLocation();
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [settings, setSettings] = useState(null);
 
   const isActive = (path) => {
     return location.pathname === path;
@@ -21,6 +24,25 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       document.body.style.overflow = 'unset';
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetchAdminSettings()
+      .then((data) => {
+        if (mounted) setSettings(data || null);
+      })
+      .catch(() => {
+        if (mounted) setSettings(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const adminName = getAdminDisplayName(settings);
+  const adminSubtitle = getAdminSubtitle(settings);
 
   const mainItems = sidebarMenuItems.filter((item) => item.category === 'main');
   const additionalItems = sidebarMenuItems.filter((item) => item.category === 'additional');
@@ -94,10 +116,10 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
           {/* User Card */}
           <div className="mx-3 mt-3 rounded-xl bg-white/10 px-3 py-3 text-center border border-white/10 backdrop-blur">
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center mx-auto text-white font-bold text-lg shadow-lg">
-              A
+              {adminName?.[0]?.toUpperCase() || 'A'}
             </div>
-            <h2 className="mt-2 text-sm font-bold text-white tracking-wide">Admin User</h2>
-            <p className="text-xs text-white/60 mt-0.5">Administrator</p>
+            <h2 className="mt-2 text-sm font-bold text-white tracking-wide">{adminName}</h2>
+            <p className="text-xs text-white/60 mt-0.5">{adminSubtitle}</p>
           </div>
 
           {/* Navigation */}

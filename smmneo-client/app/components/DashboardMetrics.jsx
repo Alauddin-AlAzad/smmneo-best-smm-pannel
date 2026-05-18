@@ -1,35 +1,21 @@
 import React from "react";
 import { useAuth } from "./AuthContext.jsx";
+import { useCurrency } from "../context/CurrencyContext.jsx";
 import userDetails from "../assets/user_details.png";
 import userBalance from "../assets/user_balance.png";
 import userSpend from "../assets/user_spend.png";
 import orders from "../assets/orders.png";
+import { getDisplayName } from "../utils/userDisplayName.js";
 
 const DashboardMetrics = () => {
   const { user } = useAuth();
-
-  // Get username based on auth method
-  const getUsername = () => {
-    if (!user) return "";
-    
-    // Check if user logged in via Google
-    const isGoogleLogin = user.providerData?.some(
-      (provider) => provider.providerId === "google.com"
-    );
-
-    if (isGoogleLogin && user.email) {
-      // Extract username before @ for Google login
-      return user.email.split("@")[0];
-    }
-    
-    // For email/password login, show displayName or email
-    return user.displayName || user.email;
-  };
+  const { balanceUSD } = useAuth();
+  const { currency, formatCurrency } = useCurrency();
 
   const metrics = [
-    { label: "Balance", value: "≈ ৳910.189713", img: userBalance },
-    { label: "Total Spend", value: "≈ ৳5197.8965638", img: userSpend },
-    { label: "Your Orders", value: "77", img: orders },
+    { label: "Balance", value: `≈ ${formatCurrency(balanceUSD || 0, currency)}`, img: userBalance },
+    { label: "Total Spend", value: "≈ ৳0.00", img: userSpend },
+    { label: "Your Orders", value: "0", img: orders },
   ];
 
   return (
@@ -44,7 +30,7 @@ const DashboardMetrics = () => {
           />
           <div>
             <h3 className="text-[16px] md:text-[18px] font-bold text-slate-900 leading-tight">
-              {getUsername()}
+              {getDisplayName(user)}
             </h3>
             <p className="text-[14px] md:text-[16px] text-slate-500">Username</p>
           </div>

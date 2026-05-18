@@ -1,10 +1,57 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import DashboardLayout from '../components/admin/layout/DashboardLayout.jsx';
 import Button from '../components/admin/common/Button.jsx';
-import { ordersData } from '../data/adminDashboardData.js';
+import LoadingSpinner from '../components/admin/common/LoadingSpinner.jsx';
+import ErrorState from '../components/admin/common/ErrorState.jsx';
+import { fetchAdminOrders } from '../services/adminDashboardAPI.js';
 
 const AdminOrders = () => {
-  const [orders, setOrders] = useState(ordersData);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadOrders = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const data = await fetchAdminOrders(100);
+        if (!mounted) return;
+        setOrders(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!mounted) return;
+        setError(err.message || 'Failed to load orders');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadOrders();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <DashboardLayout pageTitle="Orders">
+        <div className="py-16">
+          <LoadingSpinner />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout pageTitle="Orders">
+        <ErrorState message={error} onRetry={() => window.location.reload()} />
+      </DashboardLayout>
+    );
+  }
 
   const getStatusColor = (status) => {
     const colors = {
@@ -63,7 +110,7 @@ const AdminOrders = () => {
                   <td className="px-6 py-4 text-sm text-slate-600">{order.service}</td>
                   <td className="px-6 py-4">
                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(order.status)}`}>
-                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                      {(order.status || 'pending').charAt(0).toUpperCase() + (order.status || 'pending').slice(1)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-500">{order.date}</td>

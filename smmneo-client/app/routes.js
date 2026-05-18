@@ -6,6 +6,7 @@ export default [
   route("about", "pages/About.jsx"),
   route("contact", "pages/Contact.jsx"),
   route("dashboard", "pages/Dashboard.jsx"),
+  route("dashboard/add-fund", "pages/AddFund.jsx"),
   route("signup", "pages/SignUp.jsx"),
   // Admin Routes
   route("admin/dashboard", "admin/Dashboard.jsx"),

@@ -1,10 +1,59 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import DashboardLayout from '../components/admin/layout/DashboardLayout.jsx';
 import Button from '../components/admin/common/Button.jsx';
-import { usersData } from '../data/adminDashboardData.js';
+import LoadingSpinner from '../components/admin/common/LoadingSpinner.jsx';
+import ErrorState from '../components/admin/common/ErrorState.jsx';
+import UserDetailsModal from '../components/admin/dashboard/UserDetailsModal.jsx';
+import { fetchAdminUsers } from '../services/adminDashboardAPI.js';
 
 const AdminUsers = () => {
-  const [users, setUsers] = useState(usersData);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedUser, setSelectedUser] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadUsers = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const data = await fetchAdminUsers(100);
+        if (!mounted) return;
+        setUsers(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!mounted) return;
+        setError(err.message || 'Failed to load users');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadUsers();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <DashboardLayout pageTitle="Users">
+        <div className="py-16">
+          <LoadingSpinner />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout pageTitle="Users">
+        <ErrorState message={error} onRetry={() => window.location.reload()} />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout pageTitle="Users">
@@ -34,7 +83,7 @@ const AdminUsers = () => {
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center text-white font-bold text-sm">
-                        {user.name.split(' ')[0][0]}
+                        {(user.name || 'User').split(' ')[0][0]}
                       </div>
                       <span className="font-medium text-slate-900">{user.name}</span>
                     </div>
@@ -48,17 +97,20 @@ const AdminUsers = () => {
                           : 'bg-red-100 text-red-800'
                       }`}
                     >
-                      {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                      {(user.status || 'active').charAt(0).toUpperCase() + (user.status || 'active').slice(1)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-500">{user.joinDate}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedUser(user)}
+                        className="px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded transition"
+                      >
+                        View Details
+                      </button>
                       <button className="px-3 py-1 text-xs font-medium text-violet-600 hover:bg-violet-50 rounded transition">
                         Edit
-                      </button>
-                      <button className="px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded transition">
-                        Delete
                       </button>
                     </div>
                   </td>
@@ -68,6 +120,15 @@ const AdminUsers = () => {
           </table>
         </div>
       </div>
+
+      {/* User Details Modal */}
+      {selectedUser && (
+        <UserDetailsModal
+          userId={selectedUser.id}
+          userName={selectedUser.name}
+          onClose={() => setSelectedUser(null)}
+        />
+      )}
     </DashboardLayout>
   );
 };

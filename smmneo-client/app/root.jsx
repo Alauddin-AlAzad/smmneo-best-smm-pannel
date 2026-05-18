@@ -9,6 +9,7 @@ import {
 import Navbar from "./components/navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import { AuthProvider, useAuth } from "./components/AuthContext.jsx";
+import { CurrencyProvider } from "./context/CurrencyContext.jsx";
 import { Toaster } from "react-hot-toast";
 import "./app.css";
 
@@ -69,7 +70,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <CurrencyProvider>
+        <AppContent />
+      </CurrencyProvider>
     </AuthProvider>
   );
 }

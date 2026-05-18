@@ -21,13 +21,16 @@ import {
 
 import spaceBg from "../assets/space-slidebar-bg.jpg";
 import demoAvatar from "../assets/userimage.png"; // add demo avatar image
+import { useAuth } from "./AuthContext.jsx";
+import { useCurrency } from "../context/CurrencyContext.jsx";
+import { getDisplayName } from "../utils/userDisplayName.js";
 
 const topItems = [
   { label: "New order", icon: <FaShoppingCart />, to: "/dashboard" },
   { label: "Mass order", icon: <FaBoxes />, to: "/dashboard" },
   { label: "Orders", icon: <FaHistory />, to: "/dashboard" },
   { label: "Services", icon: <FaLayerGroup />, to: "/dashboard" },
-  { label: "Add funds", icon: <FaWallet />, to: "/dashboard/add-funds" },
+  { label: "Add Funds", icon: <FaWallet />, to: "/dashboard/add-fund" },
   { label: "Support Box", icon: <FaInbox />, to: "/dashboard" },
   { label: "Recently Completed", icon: <FaChartBar />, to: "/dashboard" },
 ];
@@ -53,6 +56,8 @@ const moreItems = [
 const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [expandedItem, setExpandedItem] = useState(null);
+  const { user, balanceUSD } = useAuth();
+  const { currency, formatCurrency } = useCurrency();
 
   return (
     <>
@@ -105,11 +110,17 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
             />
 
             <div className="mx-auto mt-1 inline-block rounded-full bg-amber-400 px-3 py-0.5 text-xs font-bold text-white">
-              ~ ৳10,189713
+              {(() => {
+                try {
+                  return `~ ${formatCurrency(balanceUSD || 0, currency)}`;
+                } catch (e) {
+                  return '~ ৳0.00';
+                }
+              })()}
             </div>
 
             <h2 className="mt-1 text-sm font-bold tracking-wide">
-              alauddin23105101415
+              {getDisplayName(user)}
             </h2>
           </div>
 
@@ -123,7 +134,7 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
                   onClick={() => setSidebarOpen(false)}
                   className={({ isActive }) =>
                     `flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-200 ${
-                      item.label === "Add funds"
+                          item.label === "Add Funds"
                         ? "bg-gradient-to-r from-violet-600 to-purple-500 text-white"
                         : isActive
                         ? "bg-white/10"

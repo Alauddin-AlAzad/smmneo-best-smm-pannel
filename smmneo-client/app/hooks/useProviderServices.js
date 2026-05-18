@@ -13,7 +13,7 @@ export function useProviderServices(apiUrl, apiKey) {
     hasMore: false,
   });
 
-  const fetchServices = useCallback(async (page = 1, limit = 50) => {
+  const fetchServices = useCallback(async (page = 1, limit = 50, options = {}) => {
     setLoading(true);
     setError(null);
 
@@ -47,7 +47,8 @@ export function useProviderServices(apiUrl, apiKey) {
         }
       } else {
         // Backend proxy with server-side pagination
-        const resp = await fetch(`http://localhost:3000/api/provider/services?page=${page}&limit=${limit}`);
+        const adminQuery = options.admin ? '&admin=true' : '';
+        const resp = await fetch(`http://localhost:3000/api/provider/services?page=${page}&limit=${limit}${adminQuery}`);
         if (!resp.ok) throw new Error(`Provider proxy failed: ${resp.statusText}`);
         const json = await resp.json();
         

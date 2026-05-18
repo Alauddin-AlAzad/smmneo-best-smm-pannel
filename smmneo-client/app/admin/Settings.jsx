@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import DashboardLayout from '../components/admin/layout/DashboardLayout.jsx';
 import toast from 'react-hot-toast';
+import { fetchAdminSettings, saveAdminSettings } from '../services/adminDashboardAPI.js';
 
 const AdminSettings = () => {
   const [activeModal, setActiveModal] = useState(null);
@@ -9,6 +10,13 @@ const AdminSettings = () => {
   const [providers, setProviders] = useState([]);
   const [editingProviderId, setEditingProviderId] = useState(null);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [savingGeneral, setSavingGeneral] = useState(false);
+  const [generalForm, setGeneralForm] = useState({
+    siteName: '',
+    siteUrl: '',
+    adminEmail: '',
+    maintenanceMode: false,
+  });
   const [formData, setFormData] = useState({
     apiUrl: '',
     apiKey: '',
@@ -20,12 +28,18 @@ const AdminSettings = () => {
   // Fetch providers from backend on mount
   useEffect(() => {
     fetchProviders();
-    // fetch global settings (provider) to prefill general modal
-    fetch('http://localhost:3000/api/settings')
-      .then((r) => r.json())
+    fetchAdminSettings()
       .then((data) => {
-        if (data && data.success && data.data && data.data.provider) {
-          setFormData((f) => ({ ...f, apiUrl: data.data.provider.apiUrl || '', apiKey: data.data.provider.apiKey || '' }));
+        if (data && data.provider) {
+          setFormData((f) => ({ ...f, apiUrl: data.provider.apiUrl || '', apiKey: data.provider.apiKey || '' }));
+        }
+        if (data && data.general) {
+          setGeneralForm({
+            siteName: data.general.siteName || '',
+            siteUrl: data.general.siteUrl || '',
+            adminEmail: data.general.adminEmail || '',
+            maintenanceMode: Boolean(data.general.maintenanceMode),
+          });
         }
       })
       .catch((err) => {
@@ -183,6 +197,8 @@ const AdminSettings = () => {
             <input
               type="text"
               placeholder="SMMGen"
+              value={generalForm.siteName}
+              onChange={(e) => setGeneralForm({ ...generalForm, siteName: e.target.value })}
               className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
             />
           </div>
@@ -191,6 +207,8 @@ const AdminSettings = () => {
             <input
               type="url"
               placeholder="https://example.com"
+              value={generalForm.siteUrl}
+              onChange={(e) => setGeneralForm({ ...generalForm, siteUrl: e.target.value })}
               className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
             />
           </div>
@@ -199,6 +217,8 @@ const AdminSettings = () => {
             <input
               type="email"
               placeholder="admin@example.com"
+              value={generalForm.adminEmail}
+              onChange={(e) => setGeneralForm({ ...generalForm, adminEmail: e.target.value })}
               className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
             />
           </div>
@@ -223,7 +243,13 @@ const AdminSettings = () => {
             />
           </div>
           <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-            <input type="checkbox" id="maintenance" className="w-4 h-4" />
+            <input
+              type="checkbox"
+              id="maintenance"
+              className="w-4 h-4"
+              checked={generalForm.maintenanceMode}
+              onChange={(e) => setGeneralForm({ ...generalForm, maintenanceMode: e.target.checked })}
+            />
             <label htmlFor="maintenance" className="text-sm font-medium text-slate-700 cursor-pointer">
               Enable Maintenance Mode
             </label>
@@ -698,26 +724,7 @@ const AdminSettings = () => {
               {/* Modal Actions */}
               <div className="flex gap-3 mt-6 pt-6 border-t border-slate-200">
                 <button
-                  onClick={async () => {
-                    // If saving General settings, persist provider data
-                    if (activeModal === 'general') {
-                      try {
-                        const resp = await fetch('http://localhost:3000/api/settings', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ provider: { apiUrl: formData.apiUrl, apiKey: formData.apiKey } }),
-                        });
-                        const data = await resp.json();
-                        if (data && data.success) {
-                          toast.success('Settings saved');
-                        } else {
-                          toast.error('Failed to save settings');
-                        }
-                      } catch (err) {
-                        console.error('Save settings error', err);
-                        toast.error('Failed to save settings');
-                      }
-                    }
+                  onClick={() => {
                     setActiveModal(null);
                     setActiveServiceTab('services');
                   }}
@@ -726,13 +733,30 @@ const AdminSettings = () => {
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    if (activeModal === 'general') {
+                      try {
+                        setSavingGeneral(true);
+                        await saveAdminSettings({
+                          general: generalForm,
+                          provider: { apiUrl: formData.apiUrl, apiKey: formData.apiKey },
+                        });
+                        toast.success('Settings saved');
+                      } catch (err) {
+                        console.error('Save settings error', err);
+                        toast.error('Failed to save settings');
+                        return;
+                      } finally {
+                        setSavingGeneral(false);
+                      }
+                    }
+
                     setActiveModal(null);
                     setActiveServiceTab('services');
                   }}
                   className="flex-1 px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition font-medium"
                 >
-                  Save Changes
+                  {activeModal === 'general' && savingGeneral ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>

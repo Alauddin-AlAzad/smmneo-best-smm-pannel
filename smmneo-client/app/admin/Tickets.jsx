@@ -1,10 +1,57 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import DashboardLayout from '../components/admin/layout/DashboardLayout.jsx';
 import Button from '../components/admin/common/Button.jsx';
-import { ticketsData } from '../data/adminDashboardData.js';
+import LoadingSpinner from '../components/admin/common/LoadingSpinner.jsx';
+import ErrorState from '../components/admin/common/ErrorState.jsx';
+import { fetchAdminTickets } from '../services/adminDashboardAPI.js';
 
 const AdminTickets = () => {
-  const [tickets, setTickets] = useState(ticketsData);
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadTickets = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const data = await fetchAdminTickets(100);
+        if (!mounted) return;
+        setTickets(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!mounted) return;
+        setError(err.message || 'Failed to load tickets');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadTickets();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <DashboardLayout pageTitle="Support Tickets">
+        <div className="py-16">
+          <LoadingSpinner />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout pageTitle="Support Tickets">
+        <ErrorState message={error} onRetry={() => window.location.reload()} />
+      </DashboardLayout>
+    );
+  }
 
   const getPriorityColor = (priority) => {
     const colors = {
@@ -54,12 +101,12 @@ const AdminTickets = () => {
                   <td className="px-6 py-4 text-sm text-slate-600">{ticket.subject}</td>
                   <td className="px-6 py-4">
                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(ticket.status)}`}>
-                      {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
+                      {(ticket.status || 'open').charAt(0).toUpperCase() + (ticket.status || 'open').slice(1)}
                     </span>
                   </td>
                   <td className="px-6 py-4">
                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getPriorityColor(ticket.priority)}`}>
-                      {ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
+                      {(ticket.priority || 'low').charAt(0).toUpperCase() + (ticket.priority || 'low').slice(1)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-500">{ticket.date}</td>
