@@ -69,6 +69,9 @@ function mapUserRow(doc) {
     email,
     status,
     joinDate: formatDateValue(doc.createdAt || doc.joinDate || doc.updatedAt),
+    balanceUSD: parseFloat(doc.balanceUSD || 0),
+    totalOrders: parseInt(doc.totalOrders || 0),
+    totalSpent: parseFloat(doc.totalSpent || 0),
   };
 }
 
@@ -549,12 +552,26 @@ app.put('/api/admin/users/:userId', async (req, res) => {
 
     const updatePayload = {};
     if (typeof balanceUSD === 'number') updatePayload.balanceUSD = balanceUSD;
-    if (status) updatePayload.status = status;
-    if (displayName) updatePayload.displayName = displayName;
+    
+    // Validate and set status
+    if (status) {
+      const validStatuses = ['active', 'inactive', 'suspended'];
+      const normalizedStatus = String(status).toLowerCase().trim();
+      if (validStatuses.includes(normalizedStatus)) {
+        updatePayload.status = normalizedStatus;
+      } else {
+        return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+      }
+    }
+    
+    if (displayName && typeof displayName === 'string' && displayName.trim()) {
+      updatePayload.displayName = displayName.trim();
+    }
+    
     updatePayload.updatedAt = new Date();
 
-    if (!Object.keys(updatePayload).length) {
-      return res.status(400).json({ success: false, error: 'No fields to update' });
+    if (!Object.keys(updatePayload).length || (!status && !displayName && typeof balanceUSD !== 'number')) {
+      return res.status(400).json({ success: false, error: 'No valid fields to update' });
     }
 
     const result = await db.collection('users').updateOne(
@@ -687,6 +704,40 @@ app.get('/api/test/sync-user-by-id/:userId/:balanceUSD', async (req, res) => {
   } catch (err) {
     console.error('Error syncing balance by ID:', err);
     res.status(500).json({ success: false, error: 'Failed to sync balance' });
+  }
+});
+
+// GET /api/users/status/:email - Check user status by email
+app.get('/api/users/status/:email', async (req, res) => {
+  try {
+    const db = getDB();
+    const { email } = req.params;
+    
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+
+    const user = await db.collection('users').findOne({ 
+      email: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+    });
+
+    if (!user) {
+      // User not found in MongoDB, return active status
+      return res.json({ success: true, data: { status: 'active', found: false } });
+    }
+
+    res.json({ 
+      success: true, 
+      data: { 
+        status: user.status || 'active',
+        found: true,
+        userId: user._id?.toString?.(),
+        email: user.email,
+      }
+    });
+  } catch (err) {
+    console.error('Error checking user status:', err);
+    res.status(500).json({ success: false, error: 'Failed to check user status' });
   }
 });
 
@@ -863,6 +914,118 @@ app.get('/api/admin/orders', async (req, res) => {
   } catch (err) {
     console.error('Error loading admin orders:', err);
     res.status(500).json({ success: false, error: 'Failed to load admin orders' });
+  }
+});
+
+// POST create new order and deduct balance
+app.post('/api/orders/create', async (req, res) => {
+  try {
+    const db = getDB();
+    const { email, serviceName, link, quantity, chargeAmount, currency } = req.body;
+
+    if (!email || !serviceName || !link || !quantity || !chargeAmount) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    const chargeNumeric = parseFloat(chargeAmount) || 0;
+    if (chargeNumeric <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid charge amount' });
+    }
+
+    // Find user by email
+    const usersCollection = db.collection('users');
+    const user = await usersCollection.findOne({ email: { $regex: `^${email}$`, $options: 'i' } });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Check if user has sufficient balance
+    const currentBalance = parseFloat(user.balanceUSD || 0);
+    if (currentBalance < chargeNumeric) {
+      return res.status(400).json({ success: false, error: 'Insufficient balance' });
+    }
+
+    // Create order
+    const ordersCollection = db.collection('orders');
+    const orderId = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
+    
+    const newOrder = {
+      orderId: orderId,
+      customer: email,
+      email: email,
+      service: serviceName,
+      link: link,
+      quantity: parseInt(quantity),
+      amount: chargeNumeric,
+      currency: currency || 'USD',
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const orderResult = await ordersCollection.insertOne(newOrder);
+
+    // Deduct balance from user
+    const newBalance = currentBalance - chargeNumeric;
+    await usersCollection.updateOne(
+      { _id: user._id },
+      {
+        $set: { balanceUSD: newBalance },
+        $inc: { 
+          totalOrders: 1,
+          totalSpent: chargeNumeric,
+        },
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        orderId: orderId,
+        newBalance: newBalance,
+        message: 'Order created successfully',
+      },
+    });
+  } catch (err) {
+    console.error('Error creating order:', err);
+    res.status(500).json({ success: false, error: 'Failed to create order' });
+
+  // GET check for active orders with same link
+  app.get('/api/orders/check-link/:email/:link', async (req, res) => {
+    try {
+      const db = getDB();
+      const { email, link } = req.params;
+      const decodedLink = decodeURIComponent(link);
+
+      if (!email || !decodedLink) {
+        return res.status(400).json({ success: false, error: 'Missing email or link' });
+      }
+
+      // Check for active orders with this link
+      const ordersCollection = db.collection('orders');
+      const activeOrder = await ordersCollection.findOne({
+        email: { $regex: `^${email}$`, $options: 'i' },
+        link: decodedLink,
+        status: { $in: ['pending', 'processing'] },
+      });
+
+      res.json({
+        success: true,
+        data: {
+          hasActiveOrder: !!activeOrder,
+          activeOrder: activeOrder ? {
+            orderId: activeOrder.orderId,
+            service: activeOrder.service,
+            status: activeOrder.status,
+          } : null,
+        },
+      });
+    } catch (err) {
+      console.error('Error checking active orders:', err);
+      res.status(500).json({ success: false, error: 'Failed to check orders' });
+    }
+  });
   }
 });
 

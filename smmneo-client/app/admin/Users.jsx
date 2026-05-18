@@ -4,6 +4,7 @@ import Button from '../components/admin/common/Button.jsx';
 import LoadingSpinner from '../components/admin/common/LoadingSpinner.jsx';
 import ErrorState from '../components/admin/common/ErrorState.jsx';
 import UserDetailsModal from '../components/admin/dashboard/UserDetailsModal.jsx';
+import UserEditModal from '../components/admin/dashboard/UserEditModal.jsx';
 import { fetchAdminUsers } from '../services/adminDashboardAPI.js';
 
 const AdminUsers = () => {
@@ -11,11 +12,25 @@ const AdminUsers = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedUserToEdit, setSelectedUserToEdit] = useState(null);
+
+  const loadUsers = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = await fetchAdminUsers(100);
+      setUsers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message || 'Failed to load users');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
 
-    const loadUsers = async () => {
+    const initLoad = async () => {
       try {
         setLoading(true);
         setError('');
@@ -30,7 +45,7 @@ const AdminUsers = () => {
       }
     };
 
-    loadUsers();
+    initLoad();
 
     return () => {
       mounted = false;
@@ -109,7 +124,10 @@ const AdminUsers = () => {
                       >
                         View Details
                       </button>
-                      <button className="px-3 py-1 text-xs font-medium text-violet-600 hover:bg-violet-50 rounded transition">
+                      <button
+                        onClick={() => setSelectedUserToEdit(user)}
+                        className="px-3 py-1 text-xs font-medium text-violet-600 hover:bg-violet-50 rounded transition"
+                      >
                         Edit
                       </button>
                     </div>
@@ -127,6 +145,19 @@ const AdminUsers = () => {
           userId={selectedUser.id}
           userName={selectedUser.name}
           onClose={() => setSelectedUser(null)}
+        />
+      )}
+
+      {/* User Edit Modal */}
+      {selectedUserToEdit && (
+        <UserEditModal
+          userId={selectedUserToEdit.id}
+          userName={selectedUserToEdit.name}
+          onClose={() => setSelectedUserToEdit(null)}
+          onSuccess={() => {
+            loadUsers();
+            setSelectedUserToEdit(null);
+          }}
         />
       )}
     </DashboardLayout>

@@ -26,7 +26,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
-      // load user balance from Firestore
+      // load user balance from Firestore and MongoDB
       (async () => {
         try {
           if (user) {
@@ -38,6 +38,43 @@ export const AuthProvider = ({ children }) => {
             } else {
               await setDoc(userRef, { balanceUSD: 0, createdAt: new Date() });
               setBalanceUSD(0);
+            }
+
+            // Fetch MongoDB user data and add to user object
+            try {
+              const response = await fetch(`http://localhost:3000/api/admin/users`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+              });
+              
+              if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.data) {
+                  const userList = data.data;
+                  const mongoUser = userList.find(u => u.email?.toLowerCase() === user.email.toLowerCase());
+                  
+                  if (mongoUser) {
+                    // Add MongoDB fields to user object
+                    setUser(prevUser => prevUser ? {
+                      ...prevUser,
+                      balanceUSD: Number(mongoUser.balanceUSD || 0),
+                      totalOrders: mongoUser.totalOrders || 0,
+                      totalSpent: mongoUser.totalSpent || 0,
+                    } : null);
+                    
+                    // Update Firestore too
+                    await setDoc(userRef, {
+                      balanceUSD: Number(mongoUser.balanceUSD || 0),
+                      totalOrders: mongoUser.totalOrders || 0,
+                      totalSpent: mongoUser.totalSpent || 0,
+                    }, { merge: true });
+                    
+                    setBalanceUSD(Number(mongoUser.balanceUSD || 0));
+                  }
+                }
+              }
+            } catch (mongoError) {
+              console.error('Error loading MongoDB user data:', mongoError);
             }
           } else {
             setBalanceUSD(0);
@@ -215,6 +252,53 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const refreshUserProfile = async () => {
+    try {
+      if (!auth.currentUser?.email) return null;
+      
+      // Fetch full user profile from backend
+      const response = await fetch(`http://localhost:3000/api/admin/users`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      if (!response.ok) return null;
+      
+      const data = await response.json();
+      if (data.success && data.data) {
+        const userList = data.data;
+        const currentUser = userList.find(u => u.email?.toLowerCase() === auth.currentUser.email.toLowerCase());
+        
+        if (currentUser) {
+          // Update user balance in Firestore
+          const userRef = doc(db, "users", auth.currentUser.uid);
+          const newBalance = parseFloat(currentUser.balanceUSD || 0);
+          await setDoc(userRef, { 
+            balanceUSD: newBalance,
+            totalOrders: currentUser.totalOrders || 0,
+            totalSpent: currentUser.totalSpent || 0,
+          }, { merge: true });
+          
+          setBalanceUSD(newBalance);
+          
+          // Update user object with new fields
+          setUser(prev => prev ? {
+            ...prev,
+            balanceUSD: newBalance,
+            totalOrders: currentUser.totalOrders || 0,
+            totalSpent: currentUser.totalSpent || 0,
+          } : null);
+          
+          return currentUser;
+        }
+      }
+      return null;
+    } catch (err) {
+      console.error('Error refreshing user profile:', err);
+      return null;
+    }
+  };
+
   const addFunds = async (amount, currency = 'USD') => {
     try {
       if (!auth.currentUser) throw new Error('Not authenticated');
@@ -271,6 +355,7 @@ export const AuthProvider = ({ children }) => {
     loginWithGoogle,
     logout,
     refreshBalance,
+    refreshUserProfile,
     addFunds,
   };
 

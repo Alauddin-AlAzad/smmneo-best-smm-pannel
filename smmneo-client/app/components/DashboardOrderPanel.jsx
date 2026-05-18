@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useMemo } from "react";
 import toast from 'react-hot-toast';
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebase_init.js";
 import { useCategoryHierarchy } from "../hooks/useCategoryHierarchy.js";
 import { useCurrency } from "../context/CurrencyContext.jsx";
+import { useAuth } from "./AuthContext.jsx";
+import { checkUserStatus, createOrder, checkLinkActiveOrder } from "../services/adminDashboardAPI.js";
 
 const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange = null }) => {
+  const { user, refreshUserProfile } = useAuth();
   const [activeTab, setActiveTab] = useState("new");
   const [quantity, setQuantity] = useState("");
   const [selectedService, setSelectedService] = useState(null);
@@ -11,6 +16,8 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
   const [submitting, setSubmitting] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(null); // Track which dropdown is open
   const [searchInput, setSearchInput] = useState("");
+  const [lastOrder, setLastOrder] = useState(null); // Track last order for success display
+  const [lastError, setLastError] = useState(null); // Track last error for error display
   const { currency, formatCurrency } = useCurrency();
   
   // Use category hierarchy hook - category comes from parent or prop
@@ -154,24 +161,121 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
     return () => document.removeEventListener('click', handleClickOutside);
   }, [openDropdown]);
 
-  const handleSubmitOrder = (e) => {
+  const handleSubmitOrder = async (e) => {
     e.preventDefault();
 
     if (!selectedService || !link || !quantity) {
-      toast.error('Please fill in all required fields');
+      setLastError('Please fill in all required fields');
+      setLastOrder(null);
       return;
     }
 
     const qty = parseInt(quantity);
     if (qty < selectedService.minQuantity || qty > selectedService.maxQuantity) {
-      toast.error(`Quantity must be between ${selectedService.minQuantity} and ${selectedService.maxQuantity}`);
+      setLastError(`Quantity must be between ${selectedService.minQuantity} and ${selectedService.maxQuantity}`);
+      setLastOrder(null);
       return;
     }
 
-    toast.success(`Order created: ${selectedService.name} x${quantity}`);
-    if (charge) toast.success(`Charge: ${charge}`);
-    setLink("");
-    setQuantity("");
+    setSubmitting(true);
+
+    // Check user status before placing order
+    if (user && user.email) {
+      try {
+        const statusData = await checkUserStatus(user.email);
+        
+        if (statusData && statusData.status === 'suspended') {
+          setLastError('❌ Your account has been suspended. You cannot place new orders. Please contact support.');
+          setLastOrder(null);
+          setSubmitting(false);
+          return;
+        }
+
+        if (statusData && statusData.status === 'inactive') {
+          setLastError('⚠️ Your account is inactive. Please contact support to reactivate your account.');
+          setLastOrder(null);
+          setSubmitting(false);
+          return;
+        }
+      } catch (err) {
+        console.error('Error checking user status:', err);
+        // Continue if status check fails (non-blocking)
+      }
+    }
+
+    // Check for active orders with same link
+    if (user && user.email && link) {
+      try {
+        const linkCheckData = await checkLinkActiveOrder(user.email, link);
+        
+        if (linkCheckData && linkCheckData.hasActiveOrder) {
+          setLastError('× You have active order with this link. Please wait until order being completed.');
+          setLastOrder(null);
+          setSubmitting(false);
+          return;
+        }
+      } catch (err) {
+        console.error('Error checking active orders:', err);
+        // Continue if check fails (non-blocking)
+      }
+    }
+
+    // Create order and deduct balance
+    try {
+      const chargeNumeric = parseFloat(charge.replace(/[^0-9.-]/g, '')) || 0;
+      const orderData = await createOrder(
+        user.email,
+        selectedService.name,
+        link,
+        quantity,
+        chargeNumeric,
+        currency
+      );
+
+      if (orderData) {
+        // Get new balance formatted
+        const newBalance = formatCurrency(orderData.newBalance, currency);
+
+        // Display success message
+        setLastOrder({
+          id: orderData.orderId,
+          service: selectedService.name,
+          link: link,
+          quantity: quantity,
+          charge: charge,
+          balance: newBalance,
+        });
+        setLastError(null);
+
+        setLink("");
+        setQuantity("");
+
+        // Update Firestore with new balance immediately
+        if (auth.currentUser) {
+          try {
+            const userRef = doc(db, "users", auth.currentUser.uid);
+            await setDoc(userRef, {
+              balanceUSD: orderData.newBalance,
+              totalOrders: (user?.totalOrders || 0) + 1,
+              totalSpent: (parseFloat(user?.totalSpent) || 0) + chargeNumeric,
+            }, { merge: true });
+          } catch (firestoreErr) {
+            console.error('Error updating Firestore balance:', firestoreErr);
+          }
+        }
+
+        // Refresh user profile to sync with MongoDB
+        setTimeout(() => {
+          refreshUserProfile().catch(err => console.error('Error refreshing profile:', err));
+        }, 500);
+      }
+    } catch (err) {
+      console.error('Error creating order:', err);
+      setLastError(err.message || 'Failed to create order');
+      setLastOrder(null);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Note: we no longer replace the whole panel while loading. Show inline subtle loading UI instead.
@@ -537,6 +641,51 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
           </button>
         </div>
 
+        {/* Success Message - Compact */}
+        {lastOrder && (
+          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4 flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start gap-3 mb-3">
+                <span className="text-2xl font-bold text-green-600 flex-shrink-0">✓</span>
+                <h3 className="text-lg font-bold text-green-900">Your order received</h3>
+              </div>
+              <div className="space-y-1.5 text-sm text-green-900">
+                <div><span className="font-semibold">ID:</span> {lastOrder.id}</div>
+                <div><span className="font-semibold">Service:</span> {lastOrder.service}</div>
+                <div><span className="font-semibold">Link:</span> {lastOrder.link}</div>
+                <div><span className="font-semibold">Quantity:</span> {lastOrder.quantity}</div>
+                <div><span className="font-semibold">Charge:</span> {lastOrder.charge}</div>
+                <div><span className="font-semibold">Balance:</span> ${lastOrder.balance}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setLastOrder(null)}
+              className="text-green-700 hover:text-green-900 font-bold text-lg flex-shrink-0 mt-1"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Error Message - Compact */}
+        {lastError && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-bold text-red-900 flex items-center gap-2">
+                <span className="text-base">✕</span>
+                Error
+              </h3>
+              <p className="mt-2 text-xs text-red-800">{lastError}</p>
+            </div>
+            <button
+              onClick={() => setLastError(null)}
+              className="text-red-700 hover:text-red-900 font-bold text-lg flex-shrink-0"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Currency selection is handled in the topbar; removed inline toggle */}
 
         <div className="space-y-3 md:space-y-4">
@@ -671,7 +820,10 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
             <input
               type="text"
               value={link}
-              onChange={(e) => setLink(e.target.value)}
+              onChange={(e) => {
+                setLink(e.target.value);
+                setLastError(null);
+              }}
               placeholder=""
               className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
             />
@@ -683,7 +835,10 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
             <input
               type="number"
               value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
+              onChange={(e) => {
+                setQuantity(e.target.value);
+                setLastError(null);
+              }}
               className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
             />
             <p className="mt-0.5 md:mt-1 text-xs text-slate-500">
