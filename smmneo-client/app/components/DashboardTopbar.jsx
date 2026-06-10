@@ -108,11 +108,11 @@ const DashboardTopbar = ({ sidebarOpen, setSidebarOpen, darkMode, setDarkMode })
 
           {/* Telegram */}
           <a
-            href="https://t.me/"
+            href="https://t.me/smmsecure_support"
             target="_blank"
             rel="noopener noreferrer"
             className="flex h-9 w-9 items-center justify-center rounded-full bg-[#229ED9] text-white text-base transition hover:bg-[#1e87c2]"
-            aria-label="Telegram"
+            aria-label="Telegram Support"
           >
             <i className="fab fa-telegram" />
           </a>

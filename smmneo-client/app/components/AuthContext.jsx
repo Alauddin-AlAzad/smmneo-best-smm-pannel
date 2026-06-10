@@ -7,6 +7,7 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  deleteUser,
 } from "firebase/auth";
 import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase_init.js";
@@ -32,51 +33,42 @@ export const AuthProvider = ({ children }) => {
         unsubscribeUserDoc = null;
       }
       setUser(user);
-      // load user balance from Firestore and MongoDB
+
       (async () => {
         try {
-          if (user) {
-            const userRef = doc(db, "users", user.uid);
+          if (!user) {
+            setBalanceUSD(0);
+            return;
+          }
+
+          const userRef = doc(db, "users", user.uid);
+          try {
             const snap = await getDoc(userRef);
             if (snap.exists()) {
               const data = snap.data();
               setBalanceUSD(Number(data.balanceUSD || 0));
             } else {
-              await setDoc(userRef, { balanceUSD: 0, createdAt: new Date() });
               setBalanceUSD(0);
             }
+          } catch (firestoreError) {
+            setBalanceUSD(0);
+          }
 
-            let prevBalance = null;
-            unsubscribeUserDoc = onSnapshot(userRef, (snapshot) => {
-              if (snapshot.exists()) {
+          try {
+            unsubscribeUserDoc = onSnapshot(
+              userRef,
+              (snapshot) => {
+                if (!snapshot.exists()) return;
                 const data = snapshot.data();
                 const updatedBalance = Number(data.balanceUSD || 0);
-
-                // show toast when balance increases/decreases
-                if (prevBalance !== null && updatedBalance !== prevBalance) {
-                  const delta = updatedBalance - prevBalance;
-                  if (delta > 0) {
-                    toast.success(`Balance updated: +$${delta.toFixed(2)}`);
-                  } else if (delta < 0) {
-                    toast.error(`Balance changed: $${delta.toFixed(2)}`);
-                  }
-                }
-
-                prevBalance = updatedBalance;
-
                 setBalanceUSD(updatedBalance);
-                setUser((prevUser) => prevUser ? {
-                  ...prevUser,
-                  balanceUSD: updatedBalance,
-                } : prevUser);
+              },
+              () => {
+                // Ignore Firestore permission issues for realtime balance updates.
               }
-            }, (snapshotError) => {
-            });
-
-            // Removed admin-only MongoDB admin users fetch to prevent 401 requests
-            // If needed, implement a secure endpoint for non-admin users to fetch their own record.
-          } else {
-            setBalanceUSD(0);
+            );
+          } catch (snapshotError) {
+            // Ignore subscription failure.
           }
         } catch (err) {
           setBalanceUSD(0);
@@ -98,9 +90,9 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       
-      // Sync existing user to MongoDB
+      // Sync existing user to MongoDB and fail fast for deleted/inactive accounts
       try {
-        await fetch('http://localhost:3000/api/users/sync-firebase', {
+        const syncResp = await fetch('http://localhost:3000/api/users/sync-firebase', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -110,8 +102,18 @@ export const AuthProvider = ({ children }) => {
             username: result.user.displayName?.toLowerCase().replace(/\s+/g, '_'),
           }),
         });
+        if (syncResp.status === 403) {
+          const errorData = await syncResp.json().catch(() => ({}));
+          const message = errorData.error || 'Account is not available';
+          await signOut(auth);
+          toast.error(message);
+          throw new Error(message);
+        }
       } catch (syncError) {
-        // Don't throw - user is logged in via Firebase
+        if (syncError.message.includes('Account is not available')) {
+          throw syncError;
+        }
+        // don't block login for transient sync failures
       }
 
       toast.success("Logged in successfully!");
@@ -124,34 +126,12 @@ export const AuthProvider = ({ children }) => {
 
   const signupWithEmail = async (email, password, username) => {
     try {
-      // Check if username already exists
-      const usernameRef = doc(db, "usernames", username.toLowerCase());
-      const usernameSnap = await getDoc(usernameRef);
-      
-      if (usernameSnap.exists()) {
-        toast.error("Username already taken. Please choose a different one.");
-        throw new Error("Username already exists");
-      }
-
       const result = await createUserWithEmailAndPassword(auth, email, password);
-      
+
       // Set display name
       await updateProfile(result.user, {
         displayName: username,
       });
-
-      // Store username in Firestore
-      await setDoc(usernameRef, {
-        uid: result.user.uid,
-        email: email,
-        createdAt: new Date(),
-      });
-
-      // Create user profile doc with initial zero balance
-      try {
-        await setDoc(doc(db, "users", result.user.uid), { balanceUSD: 0, createdAt: new Date() });
-      } catch (e) {
-      }
 
       // Register user in MongoDB backend
       try {
@@ -167,10 +147,22 @@ export const AuthProvider = ({ children }) => {
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
+          const errorData = await response.json().catch(() => ({}));
+          const message = errorData.error || 'Failed to register user';
+          await deleteUser(result.user).catch(() => {});
+          await signOut(auth).catch(() => {});
+          toast.error(message);
+          throw new Error(message);
         }
       } catch (registrationError) {
-        // Don't throw - user is already created in Firebase
+        await deleteUser(result.user).catch(() => {});
+        throw registrationError;
+      }
+
+      // Create user profile doc with initial zero balance
+      try {
+        await setDoc(doc(db, "users", result.user.uid), { balanceUSD: 0, createdAt: new Date() });
+      } catch (e) {
       }
 
       toast.success("Account created successfully!");
@@ -187,13 +179,6 @@ export const AuthProvider = ({ children }) => {
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-
-      // Ensure user doc exists in Firestore
-      const userRef = doc(db, "users", result.user.uid);
-      const snap = await getDoc(userRef);
-      if (!snap.exists()) {
-        await setDoc(userRef, { balanceUSD: 0, createdAt: new Date() });
-      }
 
       // Register user in MongoDB (idempotent - won't fail if exists)
       try {
@@ -215,13 +200,29 @@ export const AuthProvider = ({ children }) => {
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          // User might already exist, which is fine for Google login
-          if (!errorData.error.includes('already exists')) {
+          const errorData = await response.json().catch(() => ({}));
+          const message = errorData.error || 'Failed to sync user';
+          if (response.status === 403) {
+            await signOut(auth);
+            toast.error(message);
+            throw new Error(message);
           }
         }
+
+        const userRef = doc(db, "users", result.user.uid);
+        try {
+          const snap = await getDoc(userRef);
+          if (!snap.exists()) {
+            await setDoc(userRef, { balanceUSD: 0, createdAt: new Date() });
+          }
+        } catch (firestoreError) {
+          // Ignore Firestore permission issues while the account is being set up.
+        }
       } catch (registrationError) {
-        // Don't throw - user is already logged in via Firebase
+        if (registrationError.message.includes('deactivated') || registrationError.message.includes('deleted')) {
+          throw registrationError;
+        }
+        // Don't throw - user is already logged in via Firebase for non-fatal sync failures
       }
 
       toast.success("Logged in with Google successfully!");
@@ -251,43 +252,35 @@ export const AuthProvider = ({ children }) => {
 
   const refreshUserProfile = async () => {
     try {
-      if (!auth.currentUser?.email) return null;
-      
-      // Fetch full user profile from backend
-      const response = await fetch(`http://localhost:3000/api/admin/users`, {
+      if (!auth.currentUser) return null;
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch('http://localhost:3000/api/users/me', {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
       });
-      
-      if (!response.ok) return null;
-      
+      if (!response.ok) {
+        if (response.status === 403 || response.status === 404) {
+          await signOut(auth);
+        }
+        return null;
+      }
       const data = await response.json();
       if (data.success && data.data) {
-        const userList = data.data;
-        const currentUser = userList.find(u => u.email?.toLowerCase() === auth.currentUser.email.toLowerCase());
-        
-        if (currentUser) {
-          // Update user balance in Firestore
-          const userRef = doc(db, "users", auth.currentUser.uid);
-          const newBalance = parseFloat(currentUser.balanceUSD || 0);
-          await setDoc(userRef, { 
-            balanceUSD: newBalance,
-            totalOrders: currentUser.totalOrders || 0,
-            totalSpent: currentUser.totalSpent || 0,
-          }, { merge: true });
-          
-          setBalanceUSD(newBalance);
-          
-          // Update user object with new fields
-          setUser(prev => prev ? {
-            ...prev,
-            balanceUSD: newBalance,
-            totalOrders: currentUser.totalOrders || 0,
-            totalSpent: currentUser.totalSpent || 0,
-          } : null);
-          
-          return currentUser;
-        }
+        const currentUser = data.data;
+        const userRef = doc(db, 'users', auth.currentUser.uid);
+        const newBalance = parseFloat(currentUser.balanceUSD || 0);
+        await setDoc(userRef, {
+          balanceUSD: newBalance,
+        }, { merge: true });
+        setBalanceUSD(newBalance);
+        setUser(prev => prev ? {
+          ...prev,
+          balanceUSD: newBalance,
+        } : null);
+        return currentUser;
       }
       return null;
     } catch (err) {
@@ -297,16 +290,24 @@ export const AuthProvider = ({ children }) => {
 
   const syncFirestoreBalance = async () => {
     try {
-      if (!auth.currentUser?.email) return;
-      const response = await fetch(`http://localhost:3000/api/admin/users`, {
+      if (!auth.currentUser) return;
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch('http://localhost:3000/api/users/me', {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        if (response.status === 403 || response.status === 404) {
+          await signOut(auth);
+        }
+        return;
+      }
       const data = await response.json();
-      if (!data.success || !Array.isArray(data.data)) return;
-      const currentUser = data.data.find(u => u.email?.toLowerCase() === auth.currentUser.email.toLowerCase());
-      if (!currentUser) return;
+      if (!data.success || !data.data) return;
+      const currentUser = data.data;
       const userRef = doc(db, 'users', auth.currentUser.uid);
       const newBalance = parseFloat(currentUser.balanceUSD || 0);
       const snap = await getDoc(userRef);

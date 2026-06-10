@@ -1181,23 +1181,37 @@ app.post('/api/users/register', async (req, res) => {
   try {
     const { email, username, displayName, firebaseUid } = req.body;
 
-
     if (!email || !username) {
       return res.status(400).json({ success: false, error: 'Email and username are required' });
     }
 
+    const emailLower = String(email).trim().toLowerCase();
     const db = getDB();
     const usersCol = db.collection('users');
 
-    // Check if user already exists
-    const existingUser = await usersCol.findOne({ $or: [{ email }, { username }] });
+    // Find any existing record by email or username
+    const existingUser = await usersCol.findOne({
+      $or: [
+        { email: emailLower },
+        { username },
+      ],
+    });
+
     if (existingUser) {
+      const existingStatus = String(existingUser.status || 'active').toLowerCase();
+      if (existingStatus !== 'active') {
+        return res.status(403).json({
+          success: false,
+          error: 'This account was deactivated or deleted. Please contact support to restore access.',
+        });
+      }
+
       return res.status(400).json({ success: false, error: 'User already exists' });
     }
 
     // Create user document
     const newUser = {
-      email,
+      email: emailLower,
       username,
       displayName: displayName || username,
       firebaseUid: firebaseUid || null,
@@ -1263,20 +1277,55 @@ app.post('/api/users/sync-firebase', async (req, res) => {
       return res.status(400).json({ success: false, error: 'firebaseUid and email are required' });
     }
 
+    const emailLower = String(email).trim().toLowerCase();
+    const normalizedUsername = normalizeUsername(username) || emailLower.split('@')[0];
     const db = getDB();
     const usersCol = db.collection('users');
 
-    // Check if already synced
-    const existing = await usersCol.findOne({ firebaseUid });
-    if (existing) {
-      return res.json({ success: true, message: 'User already synced', data: existing });
+    // Check if already synced by Firebase UID
+    const existingByUid = await usersCol.findOne({ firebaseUid });
+    if (existingByUid) {
+      const existingStatus = String(existingByUid.status || 'active').toLowerCase();
+      if (existingStatus !== 'active') {
+        return res.status(403).json({
+          success: false,
+          error: 'This account was deactivated or deleted. Please contact support to restore access.',
+        });
+      }
+
+      return res.json({ success: true, message: 'User already synced', data: existingByUid });
     }
 
-    // Create MongoDB user record
+    // Check for existing record by email
+    const existingByEmail = await usersCol.findOne({ email: emailLower });
+    if (existingByEmail) {
+      const existingStatus = String(existingByEmail.status || 'active').toLowerCase();
+      if (existingStatus !== 'active') {
+        return res.status(403).json({
+          success: false,
+          error: 'This account was deactivated or deleted. Please contact support to restore access.',
+        });
+      }
+
+      const updatePayload = {
+        email: emailLower,
+        displayName: displayName || existingByEmail.displayName || normalizedUsername,
+        username: existingByEmail.username || normalizedUsername,
+        firebaseUid,
+        status: 'active',
+        updatedAt: new Date(),
+      };
+
+      await usersCol.updateOne({ _id: existingByEmail._id }, { $set: updatePayload });
+      const restoredUser = await usersCol.findOne({ _id: existingByEmail._id });
+      return res.json({ success: true, message: 'User synced successfully', data: restoredUser });
+    }
+
+    // No existing record found, create user record
     const newUser = {
-      email,
-      username: normalizeUsername(username) || email.split('@')[0],
-      displayName: displayName || username || email.split('@')[0],
+      email: emailLower,
+      username: normalizedUsername,
+      displayName: displayName || normalizedUsername,
       firebaseUid,
       status: 'active',
       balanceUSD: 0,
@@ -1569,6 +1618,45 @@ app.get('/api/users/status/:email', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to check user status' });
+  }
+});
+
+// GET /api/users/me - Authoritative check for the currently authenticated Firebase user
+app.get('/api/users/me', async (req, res) => {
+  try {
+    if (!firebaseAdmin) {
+      return res.status(503).json({ success: false, error: 'Firebase Admin not initialized' });
+    }
+
+    const authHeader = (req.headers.authorization || '').trim();
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    if (!token) return res.status(401).json({ success: false, error: 'Missing authentication token' });
+
+    let decoded;
+    try {
+      decoded = await firebaseAdmin.auth().verifyIdToken(token);
+    } catch (err) {
+      return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    }
+
+    const db = getDB();
+    const usersCol = db.collection('users');
+    const user = await usersCol.findOne({ firebaseUid: decoded.uid });
+    if (!user || (user.status && String(user.status).toLowerCase() !== 'active')) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Return a minimal safe user object
+    return res.json({ success: true, data: {
+      id: user._id?.toString?.(),
+      email: user.email,
+      username: user.username,
+      displayName: user.displayName,
+      balanceUSD: Number(user.balanceUSD || 0),
+      status: user.status || 'active',
+    }});
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'Failed to verify user' });
   }
 });
 
