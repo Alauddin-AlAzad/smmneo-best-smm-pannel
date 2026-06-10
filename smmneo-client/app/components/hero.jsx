@@ -65,7 +65,7 @@ const Hero = ({ id }) => {
             </h1>
 
             <p className="mt-6 max-w-2xl text-base leading-8 text-slate-600 sm:text-lg">
-              SMMGen is the cheapest SMM Panel that helps your business grow on
+              SMMSecure is the cheapest SMM Panel that helps your business grow on
               social media. Get more followers, likes, and views instantly with
               fast and affordable services.
             </p>

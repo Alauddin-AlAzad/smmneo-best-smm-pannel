@@ -21,6 +21,7 @@ import {
 
 import spaceBg from "../assets/space-slidebar-bg.jpg";
 import demoAvatar from "../assets/userimage.png"; // add demo avatar image
+import logoIcon from "../assets/icon.png";
 import { useAuth } from "./AuthContext.jsx";
 import { useCurrency } from "../context/CurrencyContext.jsx";
 import { getDisplayName } from "../utils/userDisplayName.js";
@@ -122,12 +123,12 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
           <div className="px-3 pt-3">
             <div className="flex items-center justify-between gap-1">
               <div className="flex items-center gap-1">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-linear-to-br from-violet-500 to-indigo-700 text-2xl font-black">
-                  S
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-linear-to-br from-violet-500 to-indigo-700 overflow-hidden">
+                  <img src={logoIcon} alt="SMMSecure logo" className="h-full w-full object-cover" />
                 </div>
 
                 <h1 className="text-2xl font-extrabold tracking-wide">
-                  SMMGen
+                  SMMSecure
                 </h1>
               </div>
 

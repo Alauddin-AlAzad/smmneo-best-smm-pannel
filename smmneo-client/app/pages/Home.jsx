@@ -9,8 +9,8 @@ import { useAuth } from "../components/AuthContext.jsx";
 
 export function meta() {
   return [
-    { title: "SMMGen | Social Media Panel" },
-    { name: "description", content: "Best and cheapest SMM panel for social media growth." },
+    { title: "SMMSecure | Social Media Panel" },
+    { name: "description", content: "SMMSecure is the best and cheapest social media panel for fast, safe growth." },
   ];
 }
 

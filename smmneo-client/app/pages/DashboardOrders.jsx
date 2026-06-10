@@ -5,7 +5,7 @@ import DashboardTopbar from '../components/DashboardTopbar.jsx';
 import DashboardSidebar from '../components/DashboardSidebar.jsx';
 import { useAuth } from '../components/AuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
-import { fetchUserOrders, cancelOrder } from '../services/adminDashboardAPI.js';
+import { fetchUserOrders, cancelOrder, refreshProviderOrder } from '../services/adminDashboardAPI.js';
 
 const defaultStatusValues = ['all', 'pending', 'processing', 'completed', 'partial', 'canceled', 'refunded'];
 
@@ -32,7 +32,12 @@ function formatLink(link) {
 
 
 function normalizeStatus(status) {
-  return String(status || 'pending').trim().toLowerCase().replace(/-/g, '_');
+  const normalized = String(status || 'pending').trim().toLowerCase().replace(/-/g, '_');
+  if (normalized === 'complete' || normalized === 'done' || normalized === 'success' || normalized === 'delivered') {
+    return 'completed';
+  }
+  if (normalized === 'cancelled') return 'canceled';
+  return normalized;
 }
 
 function formatStatusLabel(status) {
@@ -41,9 +46,9 @@ function formatStatusLabel(status) {
   if (s === 'pending') return 'Pending';
   if (s === 'in_progress') return 'In Progress';
   if (s === 'processing') return 'Processing';
-  if (s === 'completed' || s === 'done') return 'Completed';
+  if (s === 'completed') return 'Completed';
   if (s === 'partial') return 'Partial';
-  if (s === 'canceled' || s === 'cancelled' || s === 'canceled_order') return 'Canceled';
+  if (s === 'canceled' || s === 'canceled_order') return 'Canceled';
   if (s === 'refunded') return 'Refunded';
   if (s === 'failed') return 'Failed';
   if (!s) return 'Unknown';
@@ -51,7 +56,15 @@ function formatStatusLabel(status) {
 }
 
 function getOrderStatusValue(order) {
-  return normalizeStatus(order?.providerStatus || order?.status || 'pending');
+  const rawStatus =
+    order?.providerStatus ||
+    order?.providerResponse?.status ||
+    order?.providerResponse?.state ||
+    order?.providerResponse?.status_text ||
+    order?.providerResponse?.state_text ||
+    order?.status ||
+    'pending';
+  return normalizeStatus(rawStatus);
 }
 
 function getStatusClass(status) {
@@ -96,9 +109,13 @@ function getRemainValue(order) {
   );
   if (Number.isFinite(providerRemains) && providerRemains >= 0) return providerRemains;
 
+  const orderRemains = Number(order?.remains);
+  if (Number.isFinite(orderRemains) && orderRemains >= 0) return orderRemains;
+
   const providerStart = getStartCountValue(order);
-  const quantity = Number(order.quantity || 0);
-  return providerStart + quantity;
+  if (Number.isFinite(providerStart) && providerStart >= 0) return providerStart;
+
+  return 0;
 }
 
 function getChargeValue(order, currency = 'USD', formatCurrency = (amount, curr) => {
@@ -159,33 +176,62 @@ export default function DashboardOrders() {
   const [searchTerm, setSearchTerm] = useState('');
   const [openActionId, setOpenActionId] = useState(null);
   const [cancellingIds, setCancellingIds] = useState([]);
+  const [refreshingIds, setRefreshingIds] = useState([]);
+  const [autoRefreshedOrderIds, setAutoRefreshedOrderIds] = useState([]);
+
+  const loadOrders = React.useCallback(async () => {
+    if (!user?.email) return;
+
+    try {
+      setLoading(true);
+      setError('');
+      const data = await fetchUserOrders(user.email, 100, 'all');
+      setOrders(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message || 'Failed to load your orders');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.email]);
 
   useEffect(() => {
-    let mounted = true;
-
-    async function loadOrders() {
-      if (!user?.email) return;
-
-      try {
-        setLoading(true);
-        setError('');
-        const data = await fetchUserOrders(user.email, 100, 'all');
-        if (!mounted) return;
-        setOrders(Array.isArray(data) ? data : []);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err.message || 'Failed to load your orders');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
     loadOrders();
+  }, [loadOrders]);
 
+  useEffect(() => {
+    const ordersToRefresh = orders
+      .filter((order) => order.providerOrderId && !autoRefreshedOrderIds.includes(order.orderId))
+      .filter((order) => ['pending', 'processing', 'partial'].includes(getOrderStatusValue(order)))
+      .slice(0, 4);
+
+    if (!ordersToRefresh.length) return;
+
+    let mounted = true;
+    const refreshPendingOrders = async () => {
+      try {
+        setRefreshingIds((prev) => [...prev, ...ordersToRefresh.map((order) => order.orderId)]);
+        await Promise.all(
+          ordersToRefresh.map(async (order) => {
+            await refreshProviderOrder(order.providerOrderId);
+            return order.orderId;
+          })
+        );
+        if (!mounted) return;
+        setAutoRefreshedOrderIds((prev) => [...prev, ...ordersToRefresh.map((order) => order.orderId)]);
+        await loadOrders();
+      } catch (err) {
+        // ignore refresh errors, user can still interact manually
+      } finally {
+        if (!mounted) return;
+        setRefreshingIds((prev) => prev.filter((id) => !ordersToRefresh.some((o) => o.orderId === id)));
+      }
+    };
+
+    refreshPendingOrders();
     return () => {
       mounted = false;
     };
-  }, [user?.email]);
+  }, [orders, autoRefreshedOrderIds, loadOrders]);
 
   const statusOptions = useMemo(() => {
     // fixed order of statuses to always show eight buttons (including 'all')
@@ -227,7 +273,7 @@ export default function DashboardOrders() {
   const handleOrderAgain = async (order) => {
     try {
       if (typeof window !== 'undefined') {
-        localStorage.setItem('smmneo:orderAgainLink', order.link || '');
+        localStorage.setItem('smmssecure:orderAgainLink', order.link || '');
       }
       setOpenActionId(null);
       toast.success('Order link sent to New Order page');
@@ -249,6 +295,24 @@ export default function DashboardOrders() {
       setOpenActionId(null);
     } catch (err) {
       toast.error('Unable to copy report details');
+    }
+  };
+
+  const handleRefreshOrder = async (order) => {
+    if (!order?.providerOrderId) {
+      toast.error('Unable to refresh order: missing provider order id');
+      return;
+    }
+
+    try {
+      setRefreshingIds((prev) => [...prev, order.orderId]);
+      await refreshProviderOrder(order.providerOrderId);
+      toast.success('Order status refreshed');
+      await loadOrders();
+    } catch (err) {
+      toast.error(err.message || 'Failed to refresh order status');
+    } finally {
+      setRefreshingIds((prev) => prev.filter((id) => id !== order.orderId));
     }
   };
 
@@ -335,8 +399,8 @@ export default function DashboardOrders() {
                       <p className="mt-1 text-sm font-semibold text-slate-900 truncate">{getDisplayOrderId(order)}</p>
                       <p className="text-xs text-slate-500">{order.date}</p>
                     </div>
-                    <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${getStatusClass(order.providerStatus || order.status)}`}>
-                      {formatStatusLabel(order.providerStatus || order.status)}
+                    <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${getStatusClass(getOrderStatusValue(order))}`}>
+                      {formatStatusLabel(getOrderStatusValue(order))}
                     </span>
                   </div>
 
@@ -364,7 +428,7 @@ export default function DashboardOrders() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {order.cancelable && ['pending', 'processing'].includes(String(order.providerStatus || order.status || '').toLowerCase()) && (
+                    {order.cancelable && ['pending', 'processing'].includes(getOrderStatusValue(order)) && (
                       <button
                         type="button"
                         disabled={cancellingIds.includes(order.orderId)}
@@ -451,13 +515,13 @@ export default function DashboardOrders() {
                         </td>
                         <td className="px-2 py-3 text-[11px] text-slate-700 whitespace-nowrap truncate max-w-20">{getRemainValue(order)}</td>
                         <td className="px-2 py-3 text-[11px] whitespace-nowrap max-w-22.5">
-                          <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${getStatusClass(order.providerStatus || order.status)}`}>
-                            {formatStatusLabel(order.providerStatus || order.status)}
+                          <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${getStatusClass(getOrderStatusValue(order))}`}>
+                            {formatStatusLabel(getOrderStatusValue(order))}
                           </span>
                         </td>
                         <td className="px-2 py-3 text-[11px] text-right whitespace-nowrap" data-order-actions>
                           <div className="relative inline-flex items-center gap-1">
-                            {order.cancelable && ['pending', 'processing'].includes(String(order.providerStatus || order.status || '').toLowerCase()) && (
+                            {order.cancelable && ['pending', 'processing'].includes(getOrderStatusValue(order)) && (
                               <button
                                 type="button"
                                 disabled={cancellingIds.includes(order.orderId)}
@@ -504,7 +568,20 @@ export default function DashboardOrders() {
                                 >
                                   Report
                                 </button>
-                            {order.cancelable && ['pending', 'processing'].includes(String(order.providerStatus || order.status || '').toLowerCase()) && (
+                                {(order.providerOrderId && ['pending', 'processing', 'partial'].includes(getOrderStatusValue(order))) && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      await handleRefreshOrder(order);
+                                      setOpenActionId(null);
+                                    }}
+                                    disabled={refreshingIds.includes(order.orderId)}
+                                    className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-900 transition hover:bg-slate-50 disabled:opacity-60"
+                                  >
+                                    {refreshingIds.includes(order.orderId) ? 'Refreshing…' : 'Refresh Status'}
+                                  </button>
+                                )}
+                            {order.cancelable && ['pending', 'processing'].includes(getOrderStatusValue(order)) && (
                                   <button
                                     type="button"
                                     onClick={async () => {

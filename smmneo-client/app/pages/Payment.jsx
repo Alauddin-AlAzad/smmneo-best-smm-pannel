@@ -6,7 +6,7 @@ import bkashLogo from '../assets/bkash.png';
 import nagadLogo from '../assets/nagad.png';
 import rocketLogo from '../assets/rocket.png';
 
-const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
 
 const logoMap = {
   bkash: bkashLogo,

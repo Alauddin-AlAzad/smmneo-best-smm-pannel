@@ -14,7 +14,10 @@ export default [
   route("dashboard/add-fund/gateways", "pages/Payment.jsx"),
   route("dashboard/add-fund/pay/:methodKey", "pages/PaymentDetails.jsx"),
   route("signup", "pages/SignUp.jsx"),
-  // Admin Routes
+  // Secure Admin Routes
+  route("smmsecure/admin/login", "adminSecure/Login.jsx"),
+  route("smmsecure/admin/dashboard", "adminSecure/Dashboard.jsx"),
+  // Legacy Admin Routes
   route("admin/dashboard", "admin/Dashboard.jsx"),
   route("admin/users", "admin/Users.jsx"),
   route("admin/services", "admin/Services.jsx"),

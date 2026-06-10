@@ -136,8 +136,8 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
           <div className="px-4 pt-4 pb-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 text-lg font-bold text-white shadow-lg">
-                  ⚙️
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 overflow-hidden shadow-lg">
+                  <img src={logoIcon} alt="SMMSecure logo" className="h-full w-full object-cover" />
                 </div>
                 <h1 className="text-2xl font-bold text-white tracking-tight">Admin</h1>
               </div>

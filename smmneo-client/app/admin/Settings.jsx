@@ -61,7 +61,7 @@ const ModalContent = ({
           <label className="block text-sm font-semibold text-slate-900 mb-2">Site Name</label>
           <input
             type="text"
-            placeholder="SMMGen"
+            placeholder="SMMSecure"
             value={generalForm.siteName}
             onChange={(e) => setGeneralForm({ ...generalForm, siteName: e.target.value })}
             className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
@@ -394,6 +394,7 @@ const ModalContent = ({
       </div>
     )
   };
+   
 
   return modalContentMap[moduleId] || null;
 };

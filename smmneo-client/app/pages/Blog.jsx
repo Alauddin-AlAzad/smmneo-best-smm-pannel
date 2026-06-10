@@ -81,7 +81,7 @@ const Blog = () => {
           </h1>
 
           <p className="mx-auto mt-5 max-w-3xl font-[Poppins] text-[16px] leading-8 text-slate-600">
-            Welcome to SMMNeo’s blog section. Discover the latest social media
+            Welcome to SMMSecure’s blog section. Discover the latest social media
             marketing trends, growth strategies, SMM panel updates, and expert
             insights to help your brand grow faster online.
           </p>

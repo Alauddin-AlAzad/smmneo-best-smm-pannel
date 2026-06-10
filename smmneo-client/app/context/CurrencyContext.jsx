@@ -5,14 +5,14 @@ const CurrencyContext = createContext(null);
 export const CurrencyProvider = ({ children }) => {
   const [currency, setCurrency] = useState(() => {
     try {
-      return localStorage.getItem('smmneo_currency') || 'BDT';
+      return localStorage.getItem('smmssecure_currency') || localStorage.getItem('smmssecure_currency') || 'BDT';
     } catch (e) {
       return 'BDT';
     }
   });
 
   useEffect(() => {
-    try { localStorage.setItem('smmneo_currency', currency); } catch (e) {}
+    try { localStorage.setItem('smmssecure_currency', currency); } catch (e) {}
   }, [currency]);
 
   const BDT_PER_USD = 130;

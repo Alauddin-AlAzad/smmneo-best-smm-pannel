@@ -7,7 +7,7 @@ import { useCurrency } from '../context/CurrencyContext.jsx';
 import DashboardTopbar from '../components/DashboardTopbar.jsx';
 import DashboardSidebar from '../components/DashboardSidebar.jsx';
 
-const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
 const PAGE_SIZE = 25;
 
 export async function loader() {
@@ -234,7 +234,7 @@ export default function DashboardServicesPage() {
     if (!service) return;
 
     try {
-      localStorage.setItem('smmneo:dashboardSelectedService', JSON.stringify(service));
+      localStorage.setItem('smmssecure:dashboardSelectedService', JSON.stringify(service));
     } catch {
       // Ignore storage failures and still navigate.
     }

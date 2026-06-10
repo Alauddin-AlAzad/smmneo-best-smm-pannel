@@ -2,6 +2,7 @@
 import { Link, NavLink } from "react-router";
 import { useAuth } from "./AuthContext.jsx";
 import { FaBars, FaTimes } from "react-icons/fa";
+import logoIcon from "../assets/icon.png";
 
 const navItems = [
   { label: "New order", to: "/dashboard" },
@@ -34,10 +35,10 @@ const Navbar = () => {
         <div className="flex items-center justify-between px-4 py-3">
           {/* Left Side - Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-500 text-lg font-black text-white">
-              S
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-500 overflow-hidden">
+              <img src={logoIcon} alt="SMMSecure logo" className="h-full w-full object-cover" />
             </div>
-            <span className="text-lg font-bold text-slate-900">SMMNeo</span>
+            <span className="text-lg font-bold text-slate-900">SMMSecure</span>
           </Link>
 
           {/* Right Side - Hamburger Menu */}
@@ -157,10 +158,10 @@ const Navbar = () => {
         <div className="mx-auto flex max-w-7xl items-center px-6 py-3">
           {/* Left Side */}
           <Link to="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-500 text-lg font-black text-white">
-              S
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-500 overflow-hidden">
+              <img src={logoIcon} alt="SMMSecure logo" className="h-full w-full object-cover" />
             </div>
-            <span className="text-xl font-bold text-slate-900">SMMGen</span>
+            <span className="text-xl font-bold text-slate-900">SMMSecure</span>
           </Link>
 
           {/* Right Side */}

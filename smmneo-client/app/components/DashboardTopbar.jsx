@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { NavLink } from "react-router";
 import { useAuth } from "./AuthContext.jsx";
 import userImage from "../assets/userimage.png";
+import logoIcon from "../assets/icon.png";
 import { useCurrency } from "../context/CurrencyContext.jsx";
 import { getDisplayName } from "../utils/userDisplayName.js";
 
@@ -66,11 +67,11 @@ const DashboardTopbar = ({ sidebarOpen, setSidebarOpen, darkMode, setDarkMode })
 
           {!sidebarOpen && (
             <div className="flex items-center gap-2">
-              <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-500 text-sm font-bold text-white">
-                S
+              <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-500 overflow-hidden">
+                <img src={logoIcon} alt="SMMSecure logo" className="h-full w-full object-cover" />
               </div>
               <div className="hidden sm:flex flex-col leading-tight">
-                <span className="text-sm font-semibold tracking-wide text-slate-900">SMMNEO</span>
+                <span className="text-sm font-semibold tracking-wide text-slate-900">SMMSecure</span>
                 <span className="text-[10px] uppercase tracking-widest text-slate-400">Dashboard</span>
               </div>
             </div>

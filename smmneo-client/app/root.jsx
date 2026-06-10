@@ -11,6 +11,7 @@ import Footer from "./components/Footer.jsx";
 import { AuthProvider, useAuth } from "./components/AuthContext.jsx";
 import { CurrencyProvider } from "./context/CurrencyContext.jsx";
 import { Toaster } from "react-hot-toast";
+import iconUrl from "./assets/icon.png";
 import "./app.css";
 
 export function links() {
@@ -34,6 +35,10 @@ export function Layout({ children }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>SMMSecure</title>
+        <meta name="theme-color" content="#6d28d9" />
+        <link rel="icon" type="image/png" href={iconUrl} />
+        <link rel="apple-touch-icon" href={iconUrl} />
         <Meta />
         <Links />
       </head>

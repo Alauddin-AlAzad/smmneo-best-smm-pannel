@@ -1,7 +1,14 @@
 ﻿const express = require('express');
 const dotenv = require('dotenv');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const cors = require('cors');
 const { connectDB, getDB } = require('./db.js');
 const { ObjectId } = require('mongodb');
+
+const adminRouter = require('./adminRoutes');
+const adminAuth = require('./adminAuth');
+const { seedSuperAdmin } = require('./adminAuth');
 
 const firebaseAdmin = require('firebase-admin');
 let firebaseFirestore = null;
@@ -107,6 +114,37 @@ function normalizeStatus(value, fallback = 'pending') {
   return status;
 }
 
+/**
+ * Maps provider status values to local system status values
+ * 
+ * Provider Status → Local Status mapping:
+ * "Pending" → "pending"
+ * "In progress" → "processing"
+ * "Processing" → "processing"
+ * "Completed" → "completed"
+ * "Partial" → "partial"
+ * "Canceled" / "Cancelled" → "cancelled"
+ * 
+ * @param {string} providerStatus - Status from provider API
+ * @returns {string} Mapped local status value
+ */
+function mapProviderStatusToLocal(providerStatus) {
+  if (!providerStatus) return 'pending';
+  
+  const normalized = String(providerStatus).trim().toLowerCase();
+  
+  // Provider Status → Local Status mappings
+  if (normalized === 'pending') return 'pending';
+  if (normalized === 'in progress' || normalized === 'inprogress') return 'processing';
+  if (normalized === 'processing') return 'processing';
+  if (normalized === 'completed' || normalized === 'complete' || normalized === 'done') return 'completed';
+  if (normalized === 'partial' || normalized === 'partially') return 'partial';
+  if (normalized === 'canceled' || normalized === 'cancelled' || normalized === 'cancel') return 'cancelled';
+  
+  // Fallback: return normalized status if no mapping found
+  return normalized;
+}
+
 function normalizeUsername(value) {
   if (!value || typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -200,7 +238,7 @@ function mapUserOrderRow(doc) {
     cancelable: Boolean(doc.providerCancelable || doc.cancelable || doc.cancellable || false),
     refillable: Boolean(doc.providerRefillable || doc.refillable || false),
     providerStatus: pickFirstString(
-      (providerResponse && (providerResponse.status || providerResponse.state)) || doc.providerStatus || doc.provider_state || doc.provider_state_text || ''
+      (providerResponse && (providerResponse.status || providerResponse.state || providerResponse.status_text || providerResponse.state_text)) || doc.providerStatus || doc.provider_state || doc.provider_state_text || ''
     ),
   };
 }
@@ -497,6 +535,20 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
       };
 
       const existing = await ordersCol.findOne(query);
+      const statusBeforeUpdate = existing?.status || 'N/A';
+      
+      // Extract raw provider status
+      const rawProviderStatus = prow.status || prow.state || prow.status_text || prow.state_text || 'pending';
+      
+      // Map provider status to local system status
+      const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
+
+      // Log status transformation for debugging
+      console.log(`📋 Order Status Sync [${providerOrderId}]:`);
+      console.log(`   Provider ID: ${providerOrderId}`);
+      console.log(`   Provider Status: "${rawProviderStatus}"`);
+      console.log(`   Mapped Local Status: "${mappedStatus}"`);
+      console.log(`   Database Status Before: "${statusBeforeUpdate}"`);
 
       const mapped = {
         orderId: providerOrderId,
@@ -505,7 +557,8 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
         providerCancelable: Boolean(prow.cancel || prow.cancellable || prow.cancelable || prow.can_cancel || false),
         providerRefillable: Boolean(prow.refill || prow.refillable || prow.can_refill || false),
         amount: Number(prow.amount ?? prow.price ?? prow.total ?? 0) || 0,
-        status: (prow.status || prow.state || 'pending').toString(),
+        status: mappedStatus,
+        providerStatus: String(rawProviderStatus),
         startCount: Number(prow.start || prow.start_count || prow.startCount || 0) || 0,
         remains: Number(prow.remains || prow.remaining || prow.remain || 0) || 0,
         provider: { _id: provider._id?.toString?.() || provider._id || null, name: provider.name || provider.apiUrl },
@@ -515,6 +568,8 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
       if (existing) {
         // update fields that may have changed
         await ordersCol.updateOne({ _id: existing._id }, { $set: mapped });
+        console.log(`   Database Status After: "${mappedStatus}"`);
+        console.log(`   Action: Updated existing order`);
         updated++;
       } else {
         const toInsert = {
@@ -523,6 +578,8 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
           syncedFromProvider: true,
         };
         await ordersCol.insertOne(toInsert);
+        console.log(`   Database Status After: "${mappedStatus}"`);
+        console.log(`   Action: Inserted new order`);
         inserted++;
       }
     } catch (err) {
@@ -593,7 +650,7 @@ async function pushOrderToProvider(provider, orderDoc) {
 
     // Try to extract provider order id from known keys
     const providerOrderId = (json && (json.order || json.id || json.order_id || json.job || json.request_id || json.externalId)) || (json && json.data && (json.data.order || json.data.id)) || null;
-    const status = (json && (json.status || json.state)) || 'processing';
+    const status = (json && (json.status || json.state || json.status_text || json.state_text)) || 'processing';
     const providerCancelable = Boolean(json && (json.cancel || json.cancellable || json.cancelable || json.can_cancel));
     const providerRefillable = Boolean(json && (json.refill || json.refillable || json.can_refill));
 
@@ -622,6 +679,7 @@ app.post('/api/orders/:orderId/push', async (req, res) => {
         externalId: result.providerOrderId,
         providerResponse: result.raw,
         status: result.status || 'processing',
+        providerStatus: result.status || '',
         updatedAt: new Date(),
       };
       if (typeof result.providerCancelable !== 'undefined') updateFields.providerCancelable = Boolean(result.providerCancelable);
@@ -722,6 +780,11 @@ app.post('/api/provider/sync-orders', async (req, res) => {
 
 // GET /api/provider/order/:providerOrderId - fetch a single provider order and update local record
 app.get('/api/provider/order/:providerOrderId', async (req, res) => {
+  // Set CORS headers for all responses
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
   try {
     const db = getDB();
     const { providerOrderId } = req.params;
@@ -740,14 +803,66 @@ app.get('/api/provider/order/:providerOrderId', async (req, res) => {
     // Provider 'status' responses sometimes omit the id; fall back to the requested param
     const providerOrderIdNormalized = (prow.id || prow.order || prow.order_id || prow.orderId || prow.externalId || prow.key || providerOrderId || '').toString();
 
-    // Find local order by providerOrderId
-    const order = await db.collection('orders').findOne({ $or: [{ providerOrderId: providerOrderIdNormalized }, { externalId: providerOrderIdNormalized }, { orderId: providerOrderIdNormalized }] });
+    // Find local order by providerOrderId - try multiple field combinations
+    let order = await db.collection('orders').findOne({ 
+      $or: [
+        { providerOrderId: providerOrderIdNormalized }, 
+        { externalId: providerOrderIdNormalized }, 
+        { orderId: providerOrderIdNormalized },
+        { providerOrderId: providerOrderId },
+        { externalId: providerOrderId },
+        { orderId: providerOrderId }
+      ] 
+    });
+    
+    // If not found, try finding by provider's contact/email from the response if available
+    if (!order && (prow.email || prow.contact)) {
+      const email = prow.email || prow.contact;
+      order = await db.collection('orders').findOne({ 
+        email: { $regex: `^${email}$`, $options: 'i' },
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+      });
+    }
+    
+    // If still not found, try finding recent orders by any field that might match
+    if (!order) {
+      // Try to find ANY order that was recently synced with this provider
+      order = await db.collection('orders').findOne({
+        $or: [
+          { 'providerResponse.order': providerOrderIdNormalized },
+          { 'providerResponse.order': Number(providerOrderIdNormalized) },
+          { 'providerResponse.id': providerOrderIdNormalized },
+          { 'providerResponse.id': Number(providerOrderIdNormalized) }
+        ]
+      });
+    }
+
+    // Extract raw provider status
+    const rawProviderStatus = prow.status || prow.state || prow.status_text || prow.state_text || 'processing';
+    
+    // Map provider status to local system status
+    const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
+    
+    // Log single order status sync
+    console.log(`📋 Single Order Status Check [${providerOrderIdNormalized}]:`);
+    console.log(`   Provider Status: "${rawProviderStatus}"`);
+    console.log(`   Mapped Local Status: "${mappedStatus}"`);
+    if (order) {
+      console.log(`   ✓ Found order: ${order._id}`);
+      console.log(`   Database Status Before: "${order.status}"`);
+      console.log(`   Database Status After: "${mappedStatus}"`);
+      console.log(`   Action: Updated order in database`);
+    } else {
+      console.log(`   ✗ No local order found - Searched for: ${providerOrderIdNormalized} in providerOrderId, externalId, orderId fields`);
+      console.log(`   ⚠️ Unable to update - order may not be synced yet`);
+    }
 
     const updateFields = {
       providerResponse: prow,
       providerOrderId: providerOrderIdNormalized,
       externalId: providerOrderIdNormalized,
-      status: (prow.status || prow.state || prow.status_text || prow.state_text || 'processing').toString(),
+      status: mappedStatus,
+      providerStatus: String(rawProviderStatus),
       providerCancelable: Boolean(prow.cancel || prow.cancellable || prow.cancelable || prow.can_cancel || false),
       providerRefillable: Boolean(prow.refill || prow.refillable || prow.can_refill || false),
       // Prefer provider-supplied numeric/text fields when available
@@ -789,17 +904,71 @@ async function fetchCollectionRows(db, collectionName, mapper, limit = ADMIN_LIS
   return rows.map(mapper);
 }
 
+app.set('trust proxy', 1);
+app.use(helmet());
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Minimal CORS
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
+function requireAdminApiAuth(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'Missing access token' });
+  }
+
+  const payload = adminAuth.verifyAccessToken(token);
+  if (!payload || payload.type !== 'access' || !payload.sub) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired access token' });
+  }
+
+  getDB().collection('admins').findOne({ _id: new ObjectId(payload.sub), status: 'active' })
+    .then((admin) => {
+      if (!admin) {
+        return res.status(401).json({ success: false, error: 'Invalid or inactive admin account' });
+      }
+      req.admin = {
+        id: admin._id.toString(),
+        email: admin.email,
+        role: admin.role,
+        name: admin.name,
+      };
+      next();
+    })
+    .catch((err) => {
+      console.error('Admin auth middleware error:', err);
+      res.status(500).json({ success: false, error: 'Failed to validate admin token' });
+    });
+}
+
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5174';
+const additionalAllowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://localhost:5174').split(',').map((o) => o.trim()).filter(Boolean);
+const allowedOrigins = new Set([CLIENT_ORIGIN, ...additionalAllowedOrigins]);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.has(origin)) return true;
+  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
+  return false;
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    console.log('CORS origin check:', origin);
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true);
+    }
+    const err = new Error(`CORS origin not allowed: ${origin}`);
+    err.status = 403;
+    return callback(err);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+};
+app.use(cors(corsOptions));
+app.use('/api/admin', requireAdminApiAuth);
 
 // Simple request logger
 app.use((req, res, next) => {
@@ -2649,6 +2818,9 @@ function mapServiceCategoryToMainCategory(serviceCategory) {
   return 'Others';
 }
 
+// Register admin-authenticated routes under /smmsecure/admin
+app.use('/smmsecure/admin', adminRouter);
+
 // Register payments API (must be before 404 handler)
 try {
   const paymentsRouter = require('./routes/payments');
@@ -2672,6 +2844,7 @@ app.use((err, req, res, next) => {
 async function start() {
   try {
     await connectDB();
+    await seedSuperAdmin();
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
     });

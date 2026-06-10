@@ -77,7 +77,7 @@ const AdminTickets = () => {
       setReplyLoading(true);
       const reply = await replyToAdminTicket(selectedTicket.ticketId, {
         authorName: 'Admin',
-        authorEmail: 'admin@smmgen.local',
+        authorEmail: 'admin@smmssecure.local',
         message: replyText,
       });
 

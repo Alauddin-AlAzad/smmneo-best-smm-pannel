@@ -4,12 +4,12 @@ const About = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
           <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-violet-600">Why SMMGen</p>
+            <p className="text-sm uppercase tracking-[0.24em] text-violet-600">Why SMMSecure</p>
             <h2 className="mt-4 text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">
-              Why SMMGen is the Best SMM Panel
+              Why SMMSecure is the Best SMM Panel
             </h2>
             <p className="mt-6 text-slate-600 leading-8">
-              SMMGen is not only an SMM panel, it’s your ally on the road to dominating social media.
+              SMMSecure is not only an SMM panel, it’s your ally on the road to dominating social media.
               We deliver quality, affordability, and reliable customer service so your accounts grow fast.
             </p>
             <p className="mt-4 text-slate-600 leading-8">
@@ -20,7 +20,7 @@ const About = () => {
               href="#"
               className="inline-flex mt-8 rounded-full bg-violet-600 px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-200/40 transition hover:bg-violet-500"
             >
-              About SMMGen
+              About SMMSecure
             </a>
           </div>
           <div className="relative rounded-[2rem] bg-violet-600/5 p-6 sm:p-8">

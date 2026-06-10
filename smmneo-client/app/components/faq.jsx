@@ -1,7 +1,7 @@
 const faqItems = [
   { question: "What is Social Media Marketing (SMM)?", answer: "SMM is a marketing strategy that uses social platforms to grow visibility, engagement, and conversions for businesses online." },
-  { question: "Is it safe to use SMMGen?", answer: "Yes. We use trusted service providers and manage delivery carefully to keep your accounts secure." },
-  { question: "Can I use SMMGen for multiple social media accounts?", answer: "Absolutely. Our platform supports multiple accounts across Instagram, Facebook, TikTok, Twitter, and more." },
+  { question: "Is it safe to use SMMSecure?", answer: "Yes. We use trusted service providers and manage delivery carefully to keep your accounts secure." },
+  { question: "Can I use SMMSecure for multiple social media accounts?", answer: "Absolutely. Our platform supports multiple accounts across Instagram, Facebook, TikTok, Twitter, and more." },
   { question: "Can I get a refund if I don't see results?", answer: "We offer support and investigation for orders that do not perform as expected." },
 ];
 

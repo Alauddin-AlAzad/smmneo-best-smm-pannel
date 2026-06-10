@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
 
 export async function submitPaymentRequest(payload){
   const resp = await fetch(`${API_BASE_URL}/api/payments/submit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});

@@ -101,7 +101,7 @@ const Contact = () => {
                 <span className="text-purple-700">Unparalleled SMM Solutions</span>
               </h1>
               <p className="mt-5 text-base leading-8 text-slate-600 max-w-xl">
-                Embark on your journey to social media success with SMMGen. Reach out to us for a consultation,
+                Embark on your journey to social media success with SMMSecure. Reach out to us for a consultation,
                 to explore our services, or to start a partnership that transforms your digital presence.
               </p>
               <button className="mt-8 rounded-full bg-indigo-600 px-7 py-3 text-sm font-semibold text-white shadow hover:bg-indigo-500 transition-all">
@@ -139,7 +139,7 @@ const Contact = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { icon: <MailIcon />, accent: "bg-indigo-600", label: "Email Us", value: "support@smmgen.com", sub: "We reply within 24 hours" },
+              { icon: <MailIcon />, accent: "bg-indigo-600", label: "Email Us", value: "support@smmssecure.com", sub: "We reply within 24 hours" },
               { icon: <PhoneIcon />, accent: "bg-purple-500", label: "Call Us", value: "+1 (555) 123-4567", sub: "Mon–Fri, 9AM–6PM EST" },
               { icon: <LocationIcon />, accent: "bg-orange-500", label: "Our Office", value: "123 Digital Ave, NY", sub: "United States" },
               { icon: <ClockIcon />, accent: "bg-violet-600", label: "Support Hours", value: "Mon–Fri: 9AM – 6PM", sub: "Weekend: 10AM – 4PM EST" },
@@ -314,7 +314,7 @@ const Contact = () => {
               <span className="text-orange-500">Social Media</span> Need
             </h2>
             <p className="mt-3 text-slate-500 max-w-xl mx-auto text-sm">
-              At SMMGen, we offer a broad spectrum of social media marketing services. Our solutions are
+              At SMMSecure, we offer a broad spectrum of social media marketing services. Our solutions are
               designed to cater to the unique requirements of each platform.
             </p>
           </div>

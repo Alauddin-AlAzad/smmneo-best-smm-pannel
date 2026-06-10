@@ -1,12 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
+import { getStoredAdminAccessToken } from '../../../services/adminSecureAPI.js';
 import Sidebar from './Sidebar.jsx';
 import Navbar from './Navbar.jsx';
 
 const DashboardLayout = ({ children, pageTitle = 'Dashboard' }) => {
-  // Sidebar starts visible on desktop, hidden on mobile
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    const token = getStoredAdminAccessToken();
+    if (!token) {
+      navigate('/smmsecure/admin/login', { replace: true });
+      return;
+    }
+    setAuthChecked(true);
+  }, [navigate]);
+
+  if (!authChecked) {
+    return null;
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50">

@@ -66,10 +66,11 @@ export default function DashboardOrderPanel({ selectedCategory = 'Everything', o
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const orderAgainLink = localStorage.getItem('smmneo:orderAgainLink');
+    const orderAgainLink = localStorage.getItem('smmssecure:orderAgainLink') || localStorage.getItem('smmssecure:orderAgainLink');
     if (!orderAgainLink) return;
     setLink(orderAgainLink);
-    localStorage.removeItem('smmneo:orderAgainLink');
+    localStorage.removeItem('smmssecure:orderAgainLink');
+    localStorage.removeItem('smmssecure:orderAgainLink');
   }, []);
 
   useEffect(() => {
@@ -649,7 +650,7 @@ export default function DashboardOrderPanel({ selectedCategory = 'Everything', o
             </div>
             <div className="mt-4 space-y-2 text-sm leading-7 text-slate-700 md:text-base">
               <p>You put the service ID followed by | followed by the link followed by | followed by quantity on each line.</p>
-              <p>To get the service ID of a service please check here: <a href="https://smmgen.com/services" target="_blank" rel="noreferrer" className="text-blue-600 underline">https://smmgen.com/services</a></p>
+              <p>To get the service ID of a service please check here: <a href="https://smmssecure.com/services" target="_blank" rel="noreferrer" className="text-blue-600 underline">https://smmssecure.com/services</a></p>
               <p>Let’s say you want to use the Mass Order to add Instagram Followers to your 3 accounts: abcd, asdf, qwer</p>
               <p>From the Services List, the service ID for this service “Instagram Followers [100% Real - 30 Days Guarantee- NEW SERVICE” is 3740</p>
               <p>Let’s say you want to add 1000 followers for each account, the output will be like this:</p>

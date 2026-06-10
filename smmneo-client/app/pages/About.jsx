@@ -42,7 +42,7 @@ const HeroImg = () => (
     <div className="w-52 h-52 rounded-full bg-gradient-to-br from-orange-200 via-purple-200 to-indigo-200 flex items-center justify-center shadow-2xl overflow-hidden border-4 border-white">
       <div className="text-6xl">👩</div>
       <div className="absolute bottom-4 right-4 bg-white rounded-xl px-3 py-1 shadow text-xs font-bold text-indigo-700 flex items-center gap-1">
-        <span className="text-orange-500">S</span>SMMGen
+        <span className="text-orange-500">S</span>SMMSecure
       </div>
     </div>
   </div>
@@ -74,7 +74,7 @@ const services = [
 // ─── Footer ───────────────────────────────────────────────────────────────────
 const Footer = () => (
   <footer className="bg-slate-950 text-slate-400 py-10 text-center text-sm">
-    <p>© {new Date().getFullYear()} SMMGen. All rights reserved.</p>
+    <p>© {new Date().getFullYear()} SMMSecure. All rights reserved.</p>
   </footer>
 );
 
@@ -91,7 +91,7 @@ const About = () => {
             <div>
               <span className="text-xs font-bold uppercase tracking-widest text-orange-500">Company Overview</span>
               <h1 className="mt-3 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl leading-tight">
-                <span className="text-orange-500">SMMGen:</span>{" "}
+                <span className="text-orange-500">SMMSecure:</span>{" "}
                 <span className="text-purple-700">Pioneering Social Media Marketing</span>{" "}
                 and Beyond
               </h1>
@@ -110,7 +110,7 @@ const About = () => {
                 <div className="relative w-56 h-56 rounded-full bg-gradient-to-br from-orange-100 to-purple-200 flex items-center justify-center shadow-2xl border-4 border-white">
                   <span className="text-8xl select-none">👩</span>
                   <div className="absolute bottom-3 right-1 bg-white rounded-xl px-2.5 py-1 shadow-md text-xs font-bold text-indigo-700 flex items-center gap-1">
-                    <span className="text-orange-500 font-black">⬡</span> SMMGen
+                    <span className="text-orange-500 font-black">⬡</span> SMMSecure
                   </div>
                 </div>
               </div>
@@ -197,7 +197,7 @@ const About = () => {
               A Blend of Expertise and Innovation
             </h2>
             <p className="mt-4 text-slate-600 leading-relaxed">
-              The strength of SMMGen lies in our diverse team of professionals. Comprising seasoned digital
+              The strength of SMMSecure lies in our diverse team of professionals. Comprising seasoned digital
               marketers, creative strategists, and tech-savvy innovators, our team brings a wealth of experience
               and fresh perspectives to the table. We foster a culture of continuous learning and improvement.
             </p>
@@ -215,7 +215,7 @@ const About = () => {
               <span className="text-orange-500">Social Media</span> Need
             </h2>
             <p className="mt-3 text-slate-500 max-w-xl mx-auto text-sm">
-              At SMMGen, we offer a broad spectrum of social media marketing services. Our solutions are
+              At SMMSecure, we offer a broad spectrum of social media marketing services. Our solutions are
               designed to cater to the unique requirements of each platform.
             </p>
           </div>
@@ -252,7 +252,7 @@ const About = () => {
             <span className="text-orange-500">Unparalleled<br />SMM Solutions</span>
           </h2>
           <p className="mt-4 text-slate-400 text-sm max-w-xl mx-auto leading-relaxed">
-            Embark on your journey to social media success with SMMGen. Reach out to us for a consultation,
+            Embark on your journey to social media success with SMMSecure. Reach out to us for a consultation,
             to explore our services, or to start a partnership that transforms your digital presence.
           </p>
           <button className="mt-8 rounded-full border border-white/20 bg-white/10 px-8 py-3 text-white backdrop-blur-sm hover:bg-white hover:text-slate-900 transition-all font-semibold text-sm">
@@ -271,7 +271,7 @@ const About = () => {
                 Innovative, Affordable, and Client-Focused
               </h2>
               <p className="mt-4 text-slate-600 leading-relaxed text-sm">
-                What sets SMMGen apart is our commitment to affordability without compromising on quality.
+                What sets SMMSecure apart is our commitment to affordability without compromising on quality.
                 We offer the cheapest SMM panels in the region, making high-quality social media marketing
                 accessible to all. Our innovative approach, coupled with personalized service, ensures that
                 each campaign we run is uniquely suited to our clients' specific goals. We believe in transparency,

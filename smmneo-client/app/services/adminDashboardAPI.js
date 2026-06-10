@@ -1,15 +1,30 @@
-const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+import { getStoredAdminAccessToken, clearAdminSession } from './adminSecureAPI.js';
+
+const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
 
 async function requestJson(path, options = {}) {
+  const accessToken = getStoredAdminAccessToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
+    headers,
     ...options,
   });
 
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    clearAdminSession();
+    if (typeof window !== 'undefined') {
+      window.location.href = '/smmsecure/admin/login';
+    }
+    throw new Error(data.error || data.message || 'Unauthorized admin access');
+  }
   if (!response.ok || data.success === false) {
     throw new Error(data.error || data.message || `Request failed for ${path}`);
   }
@@ -90,6 +105,9 @@ export const cancelOrder = (orderId) =>
   requestJson(`/api/orders/${encodeURIComponent(orderId)}/cancel`, {
     method: 'POST',
   });
+
+export const refreshProviderOrder = (providerOrderId) =>
+  requestJson(`/api/provider/order/${encodeURIComponent(providerOrderId)}`);
 
 // Check for active orders with same link
 export const checkLinkActiveOrder = (email, link) =>
