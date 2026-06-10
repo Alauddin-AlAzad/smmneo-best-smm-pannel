@@ -494,6 +494,50 @@ const AdminSettings = () => {
     }
   };
 
+  const handleSaveProvider = async () => {
+    if (!formData.apiUrl || !formData.apiKey) {
+      toast.error('API URL and API Key are required');
+      return;
+    }
+
+    try {
+      const payload = {
+        apiUrl: formData.apiUrl,
+        apiKey: formData.apiKey,
+        disableSync: formData.disableSync,
+        loginUsername: formData.loginUsername,
+        loginPassword: formData.loginPassword,
+      };
+      const url = editingProviderId ? `http://localhost:3000/api/providers/${editingProviderId}` : 'http://localhost:3000/api/providers';
+      const method = editingProviderId ? 'PUT' : 'POST';
+
+      const resp = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!data || !data.success) {
+        throw new Error(data?.message || 'Failed to save provider');
+      }
+
+      if (editingProviderId) {
+        setProviders((prev) => prev.map((provider) => String(provider._id) === String(editingProviderId) ? data.data : provider));
+        toast.success('Provider updated successfully');
+      } else {
+        setProviders((prev) => [data.data, ...prev]);
+        toast.success('Provider added successfully');
+      }
+
+      setShowProviderForm(false);
+      setEditingProviderId(null);
+      setFormData({ apiUrl: '', apiKey: '', disableSync: false, loginUsername: '', loginPassword: '' });
+    } catch (error) {
+      console.error('Error saving provider:', error);
+      toast.error(error.message || 'Failed to save provider');
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="p-6 max-w-7xl mx-auto">
@@ -550,6 +594,90 @@ const AdminSettings = () => {
                     {savingPaymentMethods ? 'Saving...' : 'Save Settings'}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+        {showProviderForm && (
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900">{editingProviderId ? 'Edit API Provider' : 'Add New API Provider'}</h2>
+                  <p className="text-sm text-slate-500">Manage seller API provider credentials and sync settings.</p>
+                </div>
+                <button onClick={() => setShowProviderForm(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-semibold transition">
+                  &times;
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-900 mb-2">API Provider URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://amarfollow.com/api/v2"
+                    value={formData.apiUrl}
+                    onChange={(e) => setFormData({ ...formData, apiUrl: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-900 mb-2">API Key</label>
+                  <input
+                    type="password"
+                    placeholder="API Key"
+                    value={formData.apiKey}
+                    onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-900 mb-2">Login Username</label>
+                    <input
+                      type="text"
+                      placeholder="Username (optional)"
+                      value={formData.loginUsername}
+                      onChange={(e) => setFormData({ ...formData, loginUsername: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-900 mb-2">Login Password</label>
+                    <input
+                      type="password"
+                      placeholder="Password (optional)"
+                      value={formData.loginPassword}
+                      onChange={(e) => setFormData({ ...formData, loginPassword: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.disableSync}
+                    onChange={(e) => setFormData({ ...formData, disableSync: e.target.checked })}
+                    className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  Disable sync for this provider
+                </label>
+              </div>
+
+              <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowProviderForm(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveProvider}
+                  className="px-5 py-2 rounded-xl bg-violet-600 text-white hover:bg-violet-700 transition text-sm font-medium shadow-sm"
+                >
+                  {editingProviderId ? 'Update Provider' : 'Save Provider'}
+                </button>
               </div>
             </div>
           </div>
