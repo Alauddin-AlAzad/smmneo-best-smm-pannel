@@ -10,7 +10,6 @@ router.get('/', async (req, res) => {
     const doc = await col.findOne({ _id: 'global' });
     res.json({ success: true, data: doc || {} });
   } catch (err) {
-    console.error('Error getting settings:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch settings' });
   }
 });
@@ -30,7 +29,6 @@ router.post('/', async (req, res) => {
     const doc = await col.findOne({ _id: 'global' });
     res.json({ success: true, data: doc });
   } catch (err) {
-    console.error('Error saving settings:', err);
     res.status(500).json({ success: false, error: 'Failed to save settings' });
   }
 });

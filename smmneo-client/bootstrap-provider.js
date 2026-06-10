@@ -10,8 +10,4 @@
     loginPassword: ''
   };
 
-  localStorage.setItem('smmssecure_providers', JSON.stringify([testProvider]));
-  console.log('✅ Test provider configured!');
-  console.log('Provider:', testProvider);
-  console.log('Now refresh the Services page to load services.');
-})();
+  localStorage.setItem('smmssecure_providers', JSON.stringify([testProvider]));})();

@@ -10,7 +10,6 @@ router.get('/', async (req, res) => {
     const providers = await db.collection('providers').find({}).toArray();
     res.json({ success: true, data: providers });
   } catch (error) {
-    console.error('Error fetching providers:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch providers' });
   }
 });
@@ -28,7 +27,6 @@ router.get('/:id', async (req, res) => {
     
     res.json({ success: true, data: provider });
   } catch (error) {
-    console.error('Error fetching provider:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch provider' });
   }
 });
@@ -57,7 +55,6 @@ router.post('/', async (req, res) => {
     const result = await db.collection('providers').insertOne(provider);
     res.json({ success: true, data: { ...provider, _id: result.insertedId } });
   } catch (error) {
-    console.error('Error creating provider:', error);
     res.status(500).json({ success: false, message: 'Failed to create provider' });
   }
 });
@@ -94,7 +91,6 @@ router.put('/:id', async (req, res) => {
 
     res.json({ success: true, data: { ...updateData, _id: req.params.id } });
   } catch (error) {
-    console.error('Error updating provider:', error);
     res.status(500).json({ success: false, message: 'Failed to update provider' });
   }
 });
@@ -147,7 +143,6 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Provider deleted successfully' });
   } catch (error) {
-    console.error('Error deleting provider:', error);
     res.status(500).json({ success: false, message: 'Failed to delete provider' });
   }
 });

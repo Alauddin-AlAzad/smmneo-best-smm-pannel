@@ -87,9 +87,7 @@ const AdminDashboard = () => {
   const handleLogout = async () => {
     try {
       await logoutAdmin();
-    } catch (err) {
-      console.warn('Logout error', err);
-    }
+    } catch (err) {    }
     navigate('/smmsecure/admin/login');
   };
 

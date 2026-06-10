@@ -13,7 +13,6 @@ const UserDetailsModal = ({ userId, userName, onClose }) => {
       const data = await fetchAdminUserDetails(userId);
       setUser(data);
     } catch (err) {
-      console.error('Failed to fetch user details:', err);
     }
   };
 
@@ -41,7 +40,7 @@ const UserDetailsModal = ({ userId, userName, onClose }) => {
 
     // Set up auto-refresh every 2 seconds for real-time balance updates
     const refreshInterval = setInterval(() => {
-      fetchUserDetails().catch(err => console.error('Failed to refresh user details:', err));
+      fetchUserDetails().catch(() => {});
     }, 2000);
 
     return () => clearInterval(refreshInterval);

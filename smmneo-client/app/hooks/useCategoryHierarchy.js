@@ -70,7 +70,6 @@ export function useCategoryHierarchy(selectedCategory = 'Everything') {
 
 			setCategorySummary([]);
 		} catch (err) {
-			console.error('❌ Error fetching services:', err);
 			setError(err.message || 'Failed to fetch services');
 			setAllServices([]);
 			setCategorySummary([]);

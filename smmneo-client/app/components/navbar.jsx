@@ -24,7 +24,6 @@ const Navbar = () => {
       await logout();
       setProfileOpen(false);
     } catch (error) {
-      console.error("Logout error:", error);
     }
   };
 

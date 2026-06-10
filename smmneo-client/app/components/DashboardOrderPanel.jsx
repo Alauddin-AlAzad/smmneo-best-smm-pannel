@@ -272,15 +272,13 @@ export default function DashboardOrderPanel({ selectedCategory = 'Everything', o
             totalSpent: (parseFloat(user?.totalSpent) || 0) + chargeNumeric,
           }, { merge: true });
         } catch (firestoreErr) {
-          console.error('Error updating Firestore balance:', firestoreErr);
         }
       }
 
       setTimeout(() => {
-        refreshUserProfile().catch((err) => console.error('Error refreshing profile:', err));
+        refreshUserProfile().catch(() => {});
       }, 500);
     } catch (err) {
-      console.error('Error creating order:', err);
       setLastError(err.message || 'Failed to create order');
       setLastOrder(null);
     } finally {
@@ -374,17 +372,15 @@ export default function DashboardOrderPanel({ selectedCategory = 'Everything', o
           const userRef = doc(db, 'users', auth.currentUser.uid);
           await setDoc(userRef, { balanceUSD: lastCreated.orderData.newBalance }, { merge: true });
         } catch (firestoreErr) {
-          console.error('Error updating Firestore balance:', firestoreErr);
         }
       }
 
       setTimeout(() => {
-        refreshUserProfile().catch((err) => console.error('Error refreshing profile:', err));
+        refreshUserProfile().catch(() => {});
       }, 500);
 
       toast.success(`Submitted ${createdOrders.length} orders`);
     } catch (err) {
-      console.error('Error creating mass order:', err);
       setLastError(err.message || 'Failed to create mass order');
       setLastOrder(null);
     } finally {

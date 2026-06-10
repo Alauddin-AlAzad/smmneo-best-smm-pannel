@@ -61,13 +61,8 @@ export function useDashboardServices() {
       const uniqueCategories = [...new Set(servicesList.map(s => s.category))].sort();
       
       setServices(servicesList);
-      setCategories(uniqueCategories);
-      console.log(`✅ Loaded ${servicesList.length} services from ${uniqueCategories.length} categories`);
-      
-      return { services: servicesList, categories: uniqueCategories };
-    } catch (err) {
-      console.error('❌ Error fetching services:', err);
-      setError(err.message);
+      setCategories(uniqueCategories);      return { services: servicesList, categories: uniqueCategories };
+    } catch (err) {      setError(err.message);
       setServices([]);
       setCategories([]);
       return { services: [], categories: [] };

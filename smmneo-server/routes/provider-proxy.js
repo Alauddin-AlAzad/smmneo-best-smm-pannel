@@ -29,7 +29,6 @@ router.get('/services', async (req, res) => {
     const data = await response.json();
     res.json({ success: true, data });
   } catch (err) {
-    console.error('Provider proxy error:', err);
     res.status(500).json({ success: false, error: 'Failed to proxy to provider' });
   }
 });

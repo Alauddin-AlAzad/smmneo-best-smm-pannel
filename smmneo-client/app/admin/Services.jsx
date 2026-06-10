@@ -82,9 +82,7 @@ const AdminServices = () => {
         setProfitPercentage('0');
         toast.error('No provider configured. Please set provider settings first.');
       }
-    } catch (error) {
-      console.error('Error fetching provider settings:', error);
-      toast.error('Failed to load provider settings');
+    } catch (error) {      toast.error('Failed to load provider settings');
     } finally {
       setLoadingSettings(false);
     }
@@ -98,9 +96,7 @@ const AdminServices = () => {
       if (data && data.success && Array.isArray(data.data)) {
         setProviders(data.data);
       }
-    } catch (error) {
-      console.error('Error fetching providers:', error);
-      toast.error('Failed to load providers');
+    } catch (error) {      toast.error('Failed to load providers');
     } finally {
       setLoadingProviders(false);
     }
@@ -153,9 +149,7 @@ const AdminServices = () => {
         toast.error(data.error || 'Failed to switch provider');
       }
       return false;
-    } catch (error) {
-      console.error('Error switching provider:', error);
-      if (!silent) {
+    } catch (error) {      if (!silent) {
         toast.error('Failed to switch provider');
       }
       return false;

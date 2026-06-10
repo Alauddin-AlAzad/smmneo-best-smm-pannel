@@ -71,50 +71,14 @@ export const AuthProvider = ({ children }) => {
                 } : prevUser);
               }
             }, (snapshotError) => {
-              console.error('User doc snapshot error:', snapshotError);
             });
 
-            // Fetch MongoDB user data and add to user object
-            try {
-              const response = await fetch(`http://localhost:3000/api/admin/users`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
-              });
-              
-              if (response.ok) {
-                const data = await response.json();
-                if (data.success && data.data) {
-                  const userList = data.data;
-                  const mongoUser = userList.find(u => u.email?.toLowerCase() === user.email.toLowerCase());
-                  
-                  if (mongoUser) {
-                    // Add MongoDB fields to user object
-                    setUser(prevUser => prevUser ? {
-                      ...prevUser,
-                      balanceUSD: Number(mongoUser.balanceUSD || 0),
-                      totalOrders: mongoUser.totalOrders || 0,
-                      totalSpent: mongoUser.totalSpent || 0,
-                    } : null);
-                    
-                    // Update Firestore too
-                    await setDoc(userRef, {
-                      balanceUSD: Number(mongoUser.balanceUSD || 0),
-                      totalOrders: mongoUser.totalOrders || 0,
-                      totalSpent: mongoUser.totalSpent || 0,
-                    }, { merge: true });
-                    
-                    setBalanceUSD(Number(mongoUser.balanceUSD || 0));
-                  }
-                }
-              }
-            } catch (mongoError) {
-              console.error('Error loading MongoDB user data:', mongoError);
-            }
+            // Removed admin-only MongoDB admin users fetch to prevent 401 requests
+            // If needed, implement a secure endpoint for non-admin users to fetch their own record.
           } else {
             setBalanceUSD(0);
           }
         } catch (err) {
-          console.error('Error loading user balance', err);
           setBalanceUSD(0);
         } finally {
           setLoading(false);
@@ -147,7 +111,6 @@ export const AuthProvider = ({ children }) => {
           }),
         });
       } catch (syncError) {
-        console.error('Failed to sync user to MongoDB:', syncError);
         // Don't throw - user is logged in via Firebase
       }
 
@@ -188,7 +151,6 @@ export const AuthProvider = ({ children }) => {
       try {
         await setDoc(doc(db, "users", result.user.uid), { balanceUSD: 0, createdAt: new Date() });
       } catch (e) {
-        console.error('Error creating user profile doc', e);
       }
 
       // Register user in MongoDB backend
@@ -206,10 +168,8 @@ export const AuthProvider = ({ children }) => {
 
         if (!response.ok) {
           const errorData = await response.json();
-          console.error('Error registering user in MongoDB:', errorData);
         }
       } catch (registrationError) {
-        console.error('Failed to sync user to MongoDB:', registrationError);
         // Don't throw - user is already created in Firebase
       }
 
@@ -258,11 +218,9 @@ export const AuthProvider = ({ children }) => {
           const errorData = await response.json();
           // User might already exist, which is fine for Google login
           if (!errorData.error.includes('already exists')) {
-            console.error('Error registering user in MongoDB:', errorData);
           }
         }
       } catch (registrationError) {
-        console.error('Failed to sync user to MongoDB:', registrationError);
         // Don't throw - user is already logged in via Firebase
       }
 
@@ -287,7 +245,6 @@ export const AuthProvider = ({ children }) => {
       }
       return 0;
     } catch (e) {
-      console.error('refreshBalance error', e);
       return 0;
     }
   };
@@ -334,7 +291,6 @@ export const AuthProvider = ({ children }) => {
       }
       return null;
     } catch (err) {
-      console.error('Error refreshing user profile:', err);
       return null;
     }
   };
@@ -361,7 +317,6 @@ export const AuthProvider = ({ children }) => {
         setUser(prev => prev ? { ...prev, balanceUSD: newBalance } : null);
       }
     } catch (syncError) {
-      console.error('Error syncing Firestore balance from backend:', syncError);
     }
   };
 
@@ -370,10 +325,8 @@ export const AuthProvider = ({ children }) => {
 
     const interval = setInterval(() => {
       refreshUserProfile().catch((err) => {
-        console.error('Auto refresh user profile failed:', err);
       });
       syncFirestoreBalance().catch((err) => {
-        console.error('Auto sync Firestore balance failed:', err);
       });
     }, 20000);
 
@@ -406,7 +359,6 @@ export const AuthProvider = ({ children }) => {
           }),
         });
       } catch (syncError) {
-        console.error('Failed to sync balance to MongoDB:', syncError);
         // Don't throw - balance is updated in Firebase
       }
 

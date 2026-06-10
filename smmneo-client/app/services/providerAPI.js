@@ -35,9 +35,7 @@ class ProviderAPI {
 
       const data = await response.json();
       return data;
-    } catch (error) {
-      console.error('Backend Proxy Error:', error.message);
-      throw error;
+    } catch (error) {      throw error;
     }
   }
 

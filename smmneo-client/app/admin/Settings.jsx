@@ -175,7 +175,6 @@ const ModalContent = ({
                           toast.error('Failed to delete provider');
                         }
                       } catch (error) {
-                        console.error('Error deleting provider:', error);
                         toast.error('Failed to delete provider');
                       }
                     }
@@ -434,7 +433,9 @@ const AdminSettings = () => {
           });
         }
       })
-      .catch((err) => console.warn('Failed to load settings', err));
+      .catch((err) => {
+        // Failed to load settings
+      });
 
     fetchPaymentMethods();
   }, []);
@@ -446,7 +447,7 @@ const AdminSettings = () => {
       const data = await resp.json();
       if (data && data.success && Array.isArray(data.data)) setProviders(data.data);
     } catch (error) {
-      console.error('Error fetching providers:', error);
+      // Error fetching providers
     } finally {
       setLoadingProviders(false);
     }
@@ -472,7 +473,7 @@ const AdminSettings = () => {
         });
       }
     } catch (error) {
-      console.error('Error fetching payment methods:', error);
+      // Error fetching payment methods
     } finally {
       setIsFetchingPaymentMethods(false);
     }
@@ -534,7 +535,6 @@ const AdminSettings = () => {
       setEditingProviderId(null);
       setFormData({ apiUrl: '', apiKey: '', disableSync: false, loginUsername: '', loginPassword: '' });
     } catch (error) {
-      console.error('Error saving provider:', error);
       toast.error(error.message || 'Failed to save provider');
     }
   };

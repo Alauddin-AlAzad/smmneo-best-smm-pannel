@@ -17,9 +17,8 @@ try {
     credential: firebaseAdmin.credential.applicationDefault(),
   });
   firebaseFirestore = firebaseAdmin.firestore();
-  console.log('✅ Firebase Admin initialized');
 } catch (firebaseInitError) {
-  console.warn('⚠️ Firebase Admin initialization failed:', firebaseInitError.message);
+  // Firebase Admin initialization failed, continuing without it
 }
 
 async function updateFirestoreUserBalance(firebaseUid, usdAmount) {
@@ -36,7 +35,7 @@ async function updateFirestoreUserBalance(firebaseUid, usdAmount) {
       { merge: true }
     );
   } catch (err) {
-    console.error('Error updating Firestore user balance:', err);
+    // Error updating Firestore user balance
   }
 }
 
@@ -492,7 +491,6 @@ async function fetchProviderOrdersFromApi(provider, orderId = null) {
 
     const resp = await fetch(provider.apiUrl, { method: 'POST', body: paramsList, headers: { Accept: 'application/json' } });
     if (!resp.ok) {
-      console.error('Provider orders fetch failed:', resp.status);
       return [];
     }
     const json = await resp.json();
@@ -509,7 +507,6 @@ async function fetchProviderOrdersFromApi(provider, orderId = null) {
     }
     return [];
   } catch (err) {
-    console.error('Error fetching provider orders:', err);
     return [];
   }
 }
@@ -543,13 +540,6 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
       // Map provider status to local system status
       const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
 
-      // Log status transformation for debugging
-      console.log(`📋 Order Status Sync [${providerOrderId}]:`);
-      console.log(`   Provider ID: ${providerOrderId}`);
-      console.log(`   Provider Status: "${rawProviderStatus}"`);
-      console.log(`   Mapped Local Status: "${mappedStatus}"`);
-      console.log(`   Database Status Before: "${statusBeforeUpdate}"`);
-
       const mapped = {
         orderId: providerOrderId,
         externalId: providerOrderId,
@@ -568,8 +558,6 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
       if (existing) {
         // update fields that may have changed
         await ordersCol.updateOne({ _id: existing._id }, { $set: mapped });
-        console.log(`   Database Status After: "${mappedStatus}"`);
-        console.log(`   Action: Updated existing order`);
         updated++;
       } else {
         const toInsert = {
@@ -578,12 +566,10 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
           syncedFromProvider: true,
         };
         await ordersCol.insertOne(toInsert);
-        console.log(`   Database Status After: "${mappedStatus}"`);
-        console.log(`   Action: Inserted new order`);
         inserted++;
       }
     } catch (err) {
-      console.error('Error reconciling provider order:', err);
+      // Error reconciling provider order
     }
   }
 
@@ -594,13 +580,10 @@ async function runSyncForProvider(provider) {
   try {
     const db = getDB();
     if (!provider || provider.disableSync) return { skipped: true };
-    console.log('🔁 Starting sync for provider:', provider.name || provider.apiUrl);
     const providerOrders = await fetchProviderOrdersFromApi(provider);
     const result = await reconcileProviderOrders(db, provider, providerOrders || []);
-    console.log(`🔁 Sync for ${provider.name || provider.apiUrl} completed. ${result.updated} updated, ${result.inserted} inserted.`);
     return result;
   } catch (err) {
-    console.error('Error running sync for provider:', err);
     return { error: String(err) };
   }
 }
@@ -628,11 +611,9 @@ async function pushOrderToProvider(provider, orderDoc) {
       } else if (/^\d+$/.test(s)) {
         svcId = s;
       } else {
-        console.log('pushOrderToProvider: missing numeric service id candidate=', s);
         return { error: "Missing numeric provider service id. Add 'providerServiceId' to the order or use a numeric 'service' value.", raw: s };
       }
     }
-    console.log('pushOrderToProvider: svcCandidate=', svcCandidate, 'svcId=', svcId);
     params.append('service', String(svcId));
     params.append('quantity', String(orderDoc.quantity || orderDoc.qty || orderDoc.count || 1));
     if (orderDoc.link) params.append('link', String(orderDoc.link));
@@ -698,7 +679,6 @@ app.post('/api/orders/:orderId/push', async (req, res) => {
 
     res.json({ success: true, data: result });
   } catch (err) {
-    console.error('Error in push endpoint:', err);
     res.status(500).json({ success: false, error: 'Failed to push order' });
   }
 });
@@ -740,14 +720,12 @@ app.post('/api/orders/:orderId/cancel', async (req, res) => {
         await db.collection('orders').updateOne({ _id: order._id }, { $set: { providerCancelResponse: json, providerCanceledAt: new Date(), updatedAt: new Date() } });
         return res.json({ success: true, data: { canceled: true, providerResponse: json } });
       } catch (err) {
-        console.error('Provider cancel failed:', err);
         return res.status(500).json({ success: false, error: 'Failed to cancel with provider' });
       }
     }
 
     res.json({ success: true, data: { canceled: true, providerResponse: null } });
   } catch (err) {
-    console.error('Error cancelling order:', err);
     res.status(500).json({ success: false, error: 'Failed to cancel order' });
   }
 });
@@ -773,7 +751,6 @@ app.post('/api/provider/sync-orders', async (req, res) => {
     const result = await runSyncForProvider(provider);
     res.json({ success: true, data: result });
   } catch (err) {
-    console.error('Error in /api/provider/sync-orders:', err);
     res.status(500).json({ success: false, error: 'Failed to sync provider orders' });
   }
 });
@@ -844,17 +821,8 @@ app.get('/api/provider/order/:providerOrderId', async (req, res) => {
     const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
     
     // Log single order status sync
-    console.log(`📋 Single Order Status Check [${providerOrderIdNormalized}]:`);
-    console.log(`   Provider Status: "${rawProviderStatus}"`);
-    console.log(`   Mapped Local Status: "${mappedStatus}"`);
     if (order) {
-      console.log(`   ✓ Found order: ${order._id}`);
-      console.log(`   Database Status Before: "${order.status}"`);
-      console.log(`   Database Status After: "${mappedStatus}"`);
-      console.log(`   Action: Updated order in database`);
     } else {
-      console.log(`   ✗ No local order found - Searched for: ${providerOrderIdNormalized} in providerOrderId, externalId, orderId fields`);
-      console.log(`   ⚠️ Unable to update - order may not be synced yet`);
     }
 
     const updateFields = {
@@ -878,7 +846,6 @@ app.get('/api/provider/order/:providerOrderId', async (req, res) => {
 
     res.json({ success: true, data: { providerOrder: prow, updatedLocal: Boolean(order) } });
   } catch (err) {
-    console.error('Error fetching provider order:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch provider order' });
   }
 });
@@ -894,7 +861,6 @@ setInterval(async () => {
       await runSyncForProvider(prov);
     }
   } catch (err) {
-    console.error('Periodic provider sync failed:', err);
   }
 }, SYNC_INTERVAL_MS);
 
@@ -936,7 +902,6 @@ function requireAdminApiAuth(req, res, next) {
       next();
     })
     .catch((err) => {
-      console.error('Admin auth middleware error:', err);
       res.status(500).json({ success: false, error: 'Failed to validate admin token' });
     });
 }
@@ -955,7 +920,6 @@ function isAllowedOrigin(origin) {
 
 const corsOptions = {
   origin: (origin, callback) => {
-    console.log('CORS origin check:', origin);
     if (isAllowedOrigin(origin)) {
       return callback(null, true);
     }
@@ -972,7 +936,6 @@ app.use('/api/admin', requireAdminApiAuth);
 
 // Simple request logger
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
   next();
 });
 
@@ -994,7 +957,6 @@ app.get('/api/settings', async (req, res) => {
     const doc = await col.findOne({ _id: 'global' });
     res.json({ success: true, data: doc || {} });
   } catch (err) {
-    console.error('Error getting settings:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch settings' });
   }
 });
@@ -1013,7 +975,6 @@ app.post('/api/settings', async (req, res) => {
     const doc = await col.findOne({ _id: 'global' });
     res.json({ success: true, data: doc });
   } catch (err) {
-    console.error('Error saving settings:', err);
     res.status(500).json({ success: false, error: 'Failed to save settings' });
   }
 });
@@ -1036,7 +997,6 @@ app.get('/api/payment-settings', async (req, res) => {
     }
     return res.json({ success: true, data: {} });
   } catch (err) {
-    console.error('Error in /api/payment-settings:', err);
     res.status(500).json({ success: false, error: 'Failed' });
   }
 });
@@ -1073,7 +1033,6 @@ app.post('/api/add-fund-request', async (req, res) => {
     const result = await col.insertOne(doc);
     res.json({ success: true, data: { id: result.insertedId } });
   } catch (err) {
-    console.error('Error in /api/add-fund-request:', err);
     res.status(500).json({ success: false, error: 'Failed' });
   }
 });
@@ -1130,7 +1089,6 @@ app.get('/api/add-fund-request', async (req, res) => {
 
     res.json({ success: true, data: enhancedDocs });
   } catch (err) {
-    console.error('Error in GET /api/add-fund-request:', err);
     res.status(500).json({ success: false, error: 'Failed to list fund requests' });
   }
 });
@@ -1172,7 +1130,6 @@ app.post('/api/add-fund-request/:id/verify', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error('Error in POST /api/add-fund-request/:id/verify:', err);
     res.status(500).json({ success: false, error: 'Failed to verify fund request' });
   }
 });
@@ -1198,7 +1155,6 @@ app.post('/api/users/sync-balance', async (req, res) => {
     const user = await usersCol.findOne(query);
 
     if (!user) {
-      console.log('⚠️ User not found for balance sync:', query);
       return res.status(404).json({ success: false, error: 'User not found in MongoDB' });
     }
 
@@ -1208,7 +1164,6 @@ app.post('/api/users/sync-balance', async (req, res) => {
       { $set: { balanceUSD: Math.max(0, balanceUSD), updatedAt: new Date() } }
     );
 
-    console.log('✅ Balance synced:', { firebaseUid, email, balanceUSD });
 
     res.json({
       success: true,
@@ -1216,7 +1171,6 @@ app.post('/api/users/sync-balance', async (req, res) => {
       data: { balanceUSD },
     });
   } catch (err) {
-    console.error('❌ Error syncing balance:', err);
     res.status(500).json({ success: false, error: 'Failed to sync balance' });
   }
 });
@@ -1227,10 +1181,8 @@ app.post('/api/users/register', async (req, res) => {
   try {
     const { email, username, displayName, firebaseUid } = req.body;
 
-    console.log('📝 User registration request:', { email, username, displayName, firebaseUid });
 
     if (!email || !username) {
-      console.log('❌ Missing email or username');
       return res.status(400).json({ success: false, error: 'Email and username are required' });
     }
 
@@ -1240,7 +1192,6 @@ app.post('/api/users/register', async (req, res) => {
     // Check if user already exists
     const existingUser = await usersCol.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
-      console.log('⚠️ User already exists:', existingUser._id);
       return res.status(400).json({ success: false, error: 'User already exists' });
     }
 
@@ -1257,7 +1208,6 @@ app.post('/api/users/register', async (req, res) => {
     };
 
     const result = await usersCol.insertOne(newUser);
-    console.log('✅ User registered successfully:', result.insertedId);
 
     res.json({
       success: true,
@@ -1265,7 +1215,6 @@ app.post('/api/users/register', async (req, res) => {
       data: { _id: result.insertedId, ...newUser },
     });
   } catch (err) {
-    console.error('❌ Error registering user:', err);
     res.status(500).json({ success: false, error: 'Failed to register user' });
   }
 });
@@ -1294,7 +1243,6 @@ app.get('/api/test/add-user', async (req, res) => {
     }
 
     const result = await usersCol.insertOne(testUser);
-    console.log('✅ Test user created:', result.insertedId);
 
     res.json({
       success: true,
@@ -1302,7 +1250,6 @@ app.get('/api/test/add-user', async (req, res) => {
       data: { _id: result.insertedId, ...testUser },
     });
   } catch (err) {
-    console.error('❌ Error creating test user:', err);
     res.status(500).json({ success: false, error: 'Failed to create test user' });
   }
 });
@@ -1322,7 +1269,6 @@ app.post('/api/users/sync-firebase', async (req, res) => {
     // Check if already synced
     const existing = await usersCol.findOne({ firebaseUid });
     if (existing) {
-      console.log('ℹ️ User already synced to MongoDB:', firebaseUid);
       return res.json({ success: true, message: 'User already synced', data: existing });
     }
 
@@ -1339,7 +1285,6 @@ app.post('/api/users/sync-firebase', async (req, res) => {
     };
 
     const result = await usersCol.insertOne(newUser);
-    console.log('✅ Firebase user synced to MongoDB:', result.insertedId);
 
     res.json({
       success: true,
@@ -1347,7 +1292,6 @@ app.post('/api/users/sync-firebase', async (req, res) => {
       data: { _id: result.insertedId, ...newUser },
     });
   } catch (err) {
-    console.error('❌ Error syncing Firebase user:', err);
     res.status(500).json({ success: false, error: 'Failed to sync user' });
   }
 });
@@ -1359,7 +1303,6 @@ app.get('/api/admin/overview', async (req, res) => {
     const data = await fetchAdminOverviewData(db);
     res.json({ success: true, data });
   } catch (err) {
-    console.error('Error loading admin overview:', err);
     res.status(500).json({ success: false, error: 'Failed to load admin overview' });
   }
 });
@@ -1371,7 +1314,6 @@ app.get('/api/admin/users', async (req, res) => {
     const data = await fetchCollectionRows(db, 'users', mapUserRow, limit);
     res.json({ success: true, data });
   } catch (err) {
-    console.error('Error loading admin users:', err);
     res.status(500).json({ success: false, error: 'Failed to load admin users' });
   }
 });
@@ -1434,7 +1376,6 @@ app.get('/api/admin/users/:userId', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Error loading user details:', err);
     res.status(500).json({ success: false, error: 'Failed to load user details' });
   }
 });
@@ -1486,7 +1427,6 @@ app.put('/api/admin/users/:userId', async (req, res) => {
       data: updatedUser,
     });
   } catch (err) {
-    console.error('Error updating user:', err);
     res.status(500).json({ success: false, error: 'Failed to update user' });
   }
 });
@@ -1533,7 +1473,6 @@ app.post('/api/admin/users/:userId/balance', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Error updating balance:', err);
     res.status(500).json({ success: false, error: 'Failed to update balance' });
   }
 });
@@ -1556,7 +1495,6 @@ app.get('/api/test/list-users', async (req, res) => {
       users: users,
     });
   } catch (err) {
-    console.error('Error listing users:', err);
     res.status(500).json({ success: false, error: 'Failed to list users' });
   }
 });
@@ -1584,7 +1522,6 @@ app.get('/api/test/sync-user-by-id/:userId/:balanceUSD', async (req, res) => {
 
     const updatedUser = await db.collection('users').findOne({ _id: new ObjectId(userId) });
 
-    console.log(`✅ Balance synced for user ${userId}: $${balance}`);
 
     res.json({
       success: true,
@@ -1598,7 +1535,6 @@ app.get('/api/test/sync-user-by-id/:userId/:balanceUSD', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Error syncing balance by ID:', err);
     res.status(500).json({ success: false, error: 'Failed to sync balance' });
   }
 });
@@ -1632,7 +1568,6 @@ app.get('/api/users/status/:email', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error checking user status:', err);
     res.status(500).json({ success: false, error: 'Failed to check user status' });
   }
 });
@@ -1665,7 +1600,6 @@ app.get('/api/test/sync-user-balance/:username/:balanceUSD', async (req, res) =>
       { $set: { balanceUSD: balance, updatedAt: new Date() } }
     );
 
-    console.log(`✅ Balance synced for ${username}: $${oldBalance} → $${balance}`);
 
     res.json({
       success: true,
@@ -1679,7 +1613,6 @@ app.get('/api/test/sync-user-balance/:username/:balanceUSD', async (req, res) =>
       },
     });
   } catch (err) {
-    console.error('Error syncing balance:', err);
     res.status(500).json({ success: false, error: 'Failed to sync balance' });
   }
 });
@@ -1741,7 +1674,6 @@ app.get('/api/test/migrate-usernames', async (req, res) => {
       await db.collection('users').bulkWrite(updates);
     }
 
-    console.log(`✅ Migrated ${migrated} user records`);
 
     res.json({
       success: true,
@@ -1750,7 +1682,6 @@ app.get('/api/test/migrate-usernames', async (req, res) => {
       totalUsers: users.length,
     });
   } catch (err) {
-    console.error('Error migrating usernames:', err);
     res.status(500).json({ success: false, error: 'Failed to migrate usernames' });
   }
 });
@@ -1787,7 +1718,6 @@ app.get('/api/test/fix-display-names', async (req, res) => {
       fixed++;
     }
 
-    console.log(`✅ Fixed ${fixed} display names`);
 
     res.json({
       success: true,
@@ -1796,7 +1726,6 @@ app.get('/api/test/fix-display-names', async (req, res) => {
       totalUsers: users.length,
     });
   } catch (err) {
-    console.error('Error fixing display names:', err);
     res.status(500).json({ success: false, error: 'Failed to fix display names' });
   }
 });
@@ -1808,7 +1737,6 @@ app.get('/api/admin/orders', async (req, res) => {
     const data = await fetchCollectionRows(db, 'orders', mapOrderRow, limit);
     res.json({ success: true, data });
   } catch (err) {
-    console.error('Error loading admin orders:', err);
     res.status(500).json({ success: false, error: 'Failed to load admin orders' });
   }
 });
@@ -1828,7 +1756,6 @@ app.post('/api/admin/orders/:orderId/link-provider', async (req, res) => {
 
     res.json({ success: true, data: { linked: true, orderId, providerOrderId } });
   } catch (err) {
-    console.error('Error linking provider id:', err);
     res.status(500).json({ success: false, error: 'Failed to link provider id' });
   }
 });
@@ -1842,7 +1769,6 @@ app.get('/api/admin/order/:orderId/raw', async (req, res) => {
     if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
     res.json({ success: true, data: order });
   } catch (err) {
-    console.error('Error fetching raw order:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch raw order' });
   }
 });
@@ -1875,7 +1801,6 @@ app.get('/api/orders/user/:email', async (req, res) => {
 
     res.json({ success: true, data: orders.map(mapUserOrderRow) });
   } catch (err) {
-    console.error('Error loading user orders:', err);
     res.status(500).json({ success: false, error: 'Failed to load user orders' });
   }
 });
@@ -1958,7 +1883,6 @@ app.post('/api/orders/create', async (req, res) => {
         const settings = await db.collection('settings').findOne({ _id: 'global' });
         const provider = settings?.provider;
         if (!provider || provider.disableSync) {
-          console.log('No provider configured or sync disabled, skipping push for order', orderId);
           return;
         }
 
@@ -1983,11 +1907,9 @@ app.post('/api/orders/create', async (req, res) => {
               await ordersCollection.updateOne({ _id: createdOrder._id }, { $set: updateFields });
         }
       } catch (err) {
-        console.error('Background push to provider failed for order', orderId, err);
       }
     })();
   } catch (err) {
-    console.error('Error creating order:', err);
     res.status(500).json({ success: false, error: 'Failed to create order' });
   }
 });
@@ -2023,7 +1945,6 @@ app.get('/api/orders/check-link/:email/:link', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Error checking active orders:', err);
     res.status(500).json({ success: false, error: 'Failed to check orders' });
   }
 });
@@ -2035,7 +1956,6 @@ app.get('/api/admin/tickets', async (req, res) => {
     const data = await fetchCollectionRows(db, 'tickets', mapTicketRow, limit);
     res.json({ success: true, data });
   } catch (err) {
-    console.error('Error loading admin tickets:', err);
     res.status(500).json({ success: false, error: 'Failed to load admin tickets' });
   }
 });
@@ -2054,7 +1974,6 @@ app.get('/api/admin/tickets/:ticketId', async (req, res) => {
 
     res.json({ success: true, data: mapTicketThread(viewedTicket) });
   } catch (err) {
-    console.error('Error loading admin ticket thread:', err);
     res.status(500).json({ success: false, error: 'Failed to load ticket thread' });
   }
 });
@@ -2084,7 +2003,6 @@ app.post('/api/admin/tickets/:ticketId/replies', async (req, res) => {
 
     res.json({ success: true, data: mapTicketReplyRow(reply) });
   } catch (err) {
-    console.error('Error saving admin ticket reply:', err);
     res.status(500).json({ success: false, error: 'Failed to save reply' });
   }
 });
@@ -2106,7 +2024,6 @@ app.post('/api/admin/tickets/:ticketId/close', async (req, res) => {
     const updatedTicket = await findTicketByTicketId(db, req.params.ticketId);
     res.json({ success: true, data: mapTicketThread(updatedTicket) });
   } catch (err) {
-    console.error('Error closing admin ticket:', err);
     res.status(500).json({ success: false, error: 'Failed to close ticket' });
   }
 });
@@ -2138,7 +2055,6 @@ app.get('/api/tickets/user/:email', async (req, res) => {
 
     res.json({ success: true, data: tickets.map(mapTicketThread) });
   } catch (err) {
-    console.error('Error loading user tickets:', err);
     res.status(500).json({ success: false, error: 'Failed to load user tickets' });
   }
 });
@@ -2157,7 +2073,6 @@ app.get('/api/tickets/:ticketId', async (req, res) => {
 
     res.json({ success: true, data: mapTicketThread(viewedTicket) });
   } catch (err) {
-    console.error('Error loading ticket thread:', err);
     res.status(500).json({ success: false, error: 'Failed to load ticket thread' });
   }
 });
@@ -2198,7 +2113,6 @@ app.post('/api/tickets', async (req, res) => {
     await db.collection('tickets').insertOne(ticketDoc);
     res.json({ success: true, data: mapTicketThread(ticketDoc) });
   } catch (err) {
-    console.error('Error creating ticket:', err);
     res.status(500).json({ success: false, error: 'Failed to create ticket' });
   }
 });
@@ -2232,7 +2146,6 @@ app.post('/api/tickets/:ticketId/replies', async (req, res) => {
 
     res.json({ success: true, data: mapTicketReplyRow(reply) });
   } catch (err) {
-    console.error('Error saving ticket reply:', err);
     res.status(500).json({ success: false, error: 'Failed to save reply' });
   }
 });
@@ -2245,7 +2158,6 @@ app.get('/api/providers', async (req, res) => {
     const providers = await db.collection('providers').find({}).toArray();
     res.json({ success: true, data: providers });
   } catch (error) {
-    console.error('Error fetching providers:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch providers' });
   }
 });
@@ -2262,7 +2174,6 @@ app.get('/api/providers/:id', async (req, res) => {
     
     res.json({ success: true, data: provider });
   } catch (error) {
-    console.error('Error fetching provider:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch provider' });
   }
 });
@@ -2291,7 +2202,6 @@ app.post('/api/providers', async (req, res) => {
     const result = await db.collection('providers').insertOne(provider);
     res.json({ success: true, data: { ...provider, _id: result.insertedId } });
   } catch (error) {
-    console.error('Error creating provider:', error);
     res.status(500).json({ success: false, message: 'Failed to create provider' });
   }
 });
@@ -2327,7 +2237,6 @@ app.put('/api/providers/:id', async (req, res) => {
 
     res.json({ success: true, data: { ...updateData, _id: req.params.id } });
   } catch (error) {
-    console.error('Error updating provider:', error);
     res.status(500).json({ success: false, message: 'Failed to update provider' });
   }
 });
@@ -2379,7 +2288,6 @@ app.delete('/api/providers/:id', async (req, res) => {
 
     res.json({ success: true, message: 'Provider deleted successfully' });
   } catch (error) {
-    console.error('Error deleting provider:', error);
     res.status(500).json({ success: false, message: 'Failed to delete provider' });
   }
 });
@@ -2467,7 +2375,6 @@ app.get('/api/provider/categories', async (req, res) => {
       total: allServices.length,
     });
   } catch (err) {
-    console.error('Provider category summary error:', err);
     res.status(500).json({ success: false, error: 'Failed to load category summary', message: err.message });
   }
 });
@@ -2536,7 +2443,6 @@ app.get('/api/provider/subcategories', async (req, res) => {
 
     res.json({ success: true, data: result });
   } catch (err) {
-    console.error('Provider subcategory summary error:', err);
     res.status(500).json({ success: false, error: 'Failed to load subcategory summary', message: err.message });
   }
 });
@@ -2592,7 +2498,6 @@ app.get('/api/provider/services', async (req, res) => {
       if (apiKey) params.append('key', apiKey);
       params.append('action', 'services');
 
-      console.log(`📤 Proxying to ${apiUrl} (refresh cache, category=${normalizedCategory || 'all'}, subcategory=${normalizedSubcategory || 'all'}, search=${searchTerm || 'all'}, refill=${refillFilter ?? 'all'}, cancel=${cancelFilter ?? 'all'}, page=${page}, limit=${limit})`);
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -2601,7 +2506,6 @@ app.get('/api/provider/services', async (req, res) => {
       });
 
       if (!response.ok) {
-        console.error(`Provider returned status ${response.status}`);
         return res.status(response.status).json({ success: false, error: 'Provider returned error' });
       }
 
@@ -2609,7 +2513,6 @@ app.get('/api/provider/services', async (req, res) => {
       allServices = Array.isArray(data) ? data : (data.data || []);
 
       if (!Array.isArray(allServices)) {
-        console.error('Provider response is not an array');
         return res.status(500).json({ success: false, error: 'Invalid provider response format' });
       }
 
@@ -2617,7 +2520,6 @@ app.get('/api/provider/services', async (req, res) => {
       providerServicesCache.fetchedAt = Date.now();
       providerServicesCache.services = allServices;
     } else {
-      console.log(`♻️ Using cached services for ${apiUrl} (category=${normalizedCategory || 'all'}, subcategory=${normalizedSubcategory || 'all'}, search=${searchTerm || 'all'}, refill=${refillFilter ?? 'all'}, cancel=${cancelFilter ?? 'all'}, page=${page}, limit=${limit})`);
     }
 
     const filteredServices = allServices.filter((service) => {
@@ -2704,7 +2606,6 @@ app.get('/api/provider/services', async (req, res) => {
       return out;
     });
 
-    console.log(`✅ Fetched ${total} services, returning ${paginatedServices.length} (page ${page}/${Math.ceil(total / limit)}) [admin=${isAdmin}]`);
 
     res.json({
       success: true,
@@ -2719,7 +2620,6 @@ app.get('/api/provider/services', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Provider proxy error:', err);
     res.status(500).json({ success: false, error: 'Failed to proxy to provider', message: err.message });
   }
 });
@@ -2766,7 +2666,6 @@ app.put('/api/providers/:id/service-pricing', async (req, res) => {
     const updatedProvider = await col.findOne({ _id: new ObjectId(providerId) });
     res.json({ success: true, data: updatedProvider });
   } catch (err) {
-    console.error('Error updating provider service pricing:', err);
     res.status(500).json({ success: false, error: 'Failed to update service pricing' });
   }
 });
@@ -2826,7 +2725,6 @@ try {
   const paymentsRouter = require('./routes/payments');
   app.use('/api/payments', paymentsRouter);
 } catch (err) {
-  console.warn('Payments router not registered:', err.message);
 }
 
 // 404 handler
@@ -2836,7 +2734,6 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
@@ -2846,20 +2743,16 @@ async function start() {
     await connectDB();
     await seedSuperAdmin();
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
     });
 
     process.on('SIGINT', () => {
-      console.log('SIGINT received, shutting down');
       server.close(() => process.exit(0));
     });
 
     process.on('SIGTERM', () => {
-      console.log('SIGTERM received, shutting down');
       server.close(() => process.exit(0));
     });
   } catch (err) {
-    console.error('Failed to start server:', err);
     process.exit(1);
   }
 }

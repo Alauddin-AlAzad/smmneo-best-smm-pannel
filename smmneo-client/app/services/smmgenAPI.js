@@ -63,7 +63,6 @@ export async function getMyOrders() {
     if (!response.ok) throw new Error('Failed to fetch orders');
     return await response.json();
   } catch (error) {
-    console.error('Error fetching orders:', error);
     throw error;
   }
 }

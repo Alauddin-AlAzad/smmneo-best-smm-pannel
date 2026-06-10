@@ -53,9 +53,7 @@ export default function Payment() {
           });
         }
       }catch(err){
-        // ignore - keep fallback
-        console.warn('Failed loading payment numbers', err);
-      }
+        // ignore - keep fallback      }
     })();
     return ()=>{ mounted=false };
   },[]);

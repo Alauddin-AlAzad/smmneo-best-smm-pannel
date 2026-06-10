@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router';
 import { sidebarMenuItems } from '../../../data/adminDashboardData.js';
 import { fetchAdminSettings, fetchAdminTickets } from '../../../services/adminDashboardAPI.js';
 import { getAdminDisplayName, getAdminSubtitle } from '../../../utils/adminProfile.js';
+import logoIcon from '../../../assets/icon.png';
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
   const location = useLocation();

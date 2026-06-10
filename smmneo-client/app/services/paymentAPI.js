@@ -43,15 +43,9 @@ export async function savePaymentMethod(paymentData){
   try {
     const resp = await fetch(`${API_BASE_URL}/api/payments/numbers`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(paymentData)});
     if (!resp.ok) {
-      const error = await resp.text();
-      console.error(`HTTP ${resp.status}:`, error);
-      return {success:false, error: `HTTP ${resp.status}: ${error}`};
+      const error = await resp.text();      return {success:false, error: `HTTP ${resp.status}: ${error}`};
     }
-    const json = await resp.json();
-    console.log('Save response:', json);
-    return json;
-  } catch(err) {
-    console.error('Fetch error:', err.message);
-    return {success:false, error: err.message};
+    const json = await resp.json();    return json;
+  } catch(err) {    return {success:false, error: err.message};
   }
 }

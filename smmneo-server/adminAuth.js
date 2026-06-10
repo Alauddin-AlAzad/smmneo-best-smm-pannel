@@ -121,8 +121,6 @@ async function seedSuperAdmin() {
     createdAt: new Date(),
     updatedAt: new Date(),
   });
-
-  console.log(`✅ Seeded admin user: ${email}`);
 }
 
 function getRefreshCookieName() {

@@ -25,9 +25,7 @@ class ProviderService {
 
       const result = await response.json();
       return result.data || [];
-    } catch (error) {
-      console.error('Error fetching providers:', error);
-      throw error;
+    } catch (error) {      throw error;
     }
   }
 
@@ -50,9 +48,7 @@ class ProviderService {
 
       const result = await response.json();
       return result.data;
-    } catch (error) {
-      console.error('Error fetching provider:', error);
-      throw error;
+    } catch (error) {      throw error;
     }
   }
 
@@ -61,30 +57,18 @@ class ProviderService {
    * @param {Object} providerData - { name, apiUrl, apiKey, disableSync, loginUsername, loginPassword }
    */
   static async createProvider(providerData) {
-    try {
-      console.log('🔵 Creating provider:', { ...providerData, apiKey: '***' });
-      const response = await fetch(`${API_BASE_URL}`, {
+    try {      const response = await fetch(`${API_BASE_URL}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(providerData),
-      });
-
-      console.log('📡 Response status:', response.status);
-      
-      if (!response.ok) {
-        const error = await response.json();
-        console.error('❌ API Error:', error);
-        throw new Error(error.error || `HTTP Error: ${response.status}`);
+      });      if (!response.ok) {
+        const error = await response.json();        throw new Error(error.error || `HTTP Error: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('✅ Provider created:', result);
-      return result.data;
-    } catch (error) {
-      console.error('Provider creation error:', error);
-      throw error;
+      const result = await response.json();      return result.data;
+    } catch (error) {      throw error;
     }
   }
 
@@ -110,9 +94,7 @@ class ProviderService {
 
       const result = await response.json();
       return result.data;
-    } catch (error) {
-      console.error('Error updating provider:', error);
-      throw error;
+    } catch (error) {      throw error;
     }
   }
 
@@ -136,9 +118,7 @@ class ProviderService {
 
       const result = await response.json();
       return result;
-    } catch (error) {
-      console.error('Error deleting provider:', error);
-      throw error;
+    } catch (error) {      throw error;
     }
   }
 
@@ -161,9 +141,7 @@ class ProviderService {
 
       const result = await response.json();
       return result.data || [];
-    } catch (error) {
-      console.error('Error fetching active providers:', error);
-      throw error;
+    } catch (error) {      throw error;
     }
   }
 }

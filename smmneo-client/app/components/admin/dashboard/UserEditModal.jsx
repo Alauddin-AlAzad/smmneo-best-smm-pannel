@@ -59,11 +59,7 @@ const UserEditModal = ({ userId, userName, onClose, onSuccess }) => {
       const payload = {
         displayName: displayName.trim(),
         status: status.toLowerCase(),
-      };
-
-      console.log('Updating user with payload:', payload);
-      
-      await updateAdminUser(userId, payload);
+      };      await updateAdminUser(userId, payload);
 
       setSuccessMessage('User information updated successfully!');
       
@@ -80,9 +76,7 @@ const UserEditModal = ({ userId, userName, onClose, onSuccess }) => {
 
       // Clear message after 2 seconds
       setTimeout(() => setSuccessMessage(''), 2000);
-    } catch (err) {
-      console.error('Error updating user:', err);
-      setError(err.message || 'Failed to update user');
+    } catch (err) {      setError(err.message || 'Failed to update user');
     } finally {
       setSaving(false);
     }

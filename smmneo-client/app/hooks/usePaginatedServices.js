@@ -2,10 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 // API URL for browser environment
-const API_BASE = 'http://localhost:3000/api';
-
-console.log('📡 API Base URL:', API_BASE);
-const DEBOUNCE_DELAY = 500; // ms
+const API_BASE = 'http://localhost:3000/api';const DEBOUNCE_DELAY = 500; // ms
 
 
 export function usePaginatedServices() {
@@ -40,10 +37,8 @@ export function usePaginatedServices() {
       if (category) params.append('category', category);
 
       const url = `${API_BASE}/services?${params.toString()}`;
-      console.log('🔄 Fetching:', url); // Debug log
 
       const response = await axios.get(url);
-      console.log('✅ Response:', response.data); // Debug log
 
       if (response.data.success) {
         setServices(response.data.data || []);
@@ -52,7 +47,6 @@ export function usePaginatedServices() {
         setError('Failed to fetch services');
       }
     } catch (err) {
-      console.error('❌ Fetch Error:', err); // Debug log
       setError(err.response?.data?.error || err.message || 'Failed to fetch services');
       setServices([]);
     } finally {

@@ -40,7 +40,6 @@ async function connectDB() {
   client = new MongoClient(MONGO_URI, clientOptions);
   await client.connect();
   db = client.db(DB_NAME);
-  console.log('✅ Connected to MongoDB', DB_NAME);
   return db;
 }
 
@@ -54,7 +53,6 @@ async function closeDB() {
     await client.close();
     client = null;
     db = null;
-    console.log('MongoDB connection closed');
   }
 }
 

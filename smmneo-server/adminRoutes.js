@@ -72,7 +72,6 @@ async function authMiddleware(req, res, next) {
 function createErrorHandler(message, status = 400) {
   return (err, req, res, next) => {
     if (err) {
-      console.error('Admin route error:', err.message || err);
       return res.status(status).json({ success: false, error: message });
     }
     next();
@@ -146,7 +145,6 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
     res.cookie(adminAuth.getRefreshCookieName(), refreshToken, adminAuth.getRefreshCookieOptions());
     res.json({ success: true, data: { accessToken, admin: buildAdminResponse(admin) } });
   } catch (err) {
-    console.error('Admin login failed:', err);
     res.status(500).json({ success: false, error: 'Failed to login' });
   }
 });
@@ -197,7 +195,6 @@ router.post('/auth/refresh', csrfProtection, async (req, res) => {
     res.cookie(adminAuth.getRefreshCookieName(), newRefreshToken, adminAuth.getRefreshCookieOptions());
     res.json({ success: true, data: { accessToken: newAccessToken, admin: buildAdminResponse(admin) } });
   } catch (err) {
-    console.error('Refresh failed:', err);
     res.status(500).json({ success: false, error: 'Failed to refresh token' });
   }
 });
@@ -229,7 +226,6 @@ router.post('/auth/logout', csrfProtection, async (req, res) => {
     res.clearCookie(adminAuth.getRefreshCookieName(), adminAuth.getRefreshCookieOptions());
     res.json({ success: true, data: { loggedOut: true } });
   } catch (err) {
-    console.error('Logout failed:', err);
     res.status(500).json({ success: false, error: 'Failed to logout' });
   }
 });
@@ -240,7 +236,6 @@ router.get('/auth/me', authMiddleware, async (req, res) => {
     if (!admin) return res.status(404).json({ success: false, error: 'Admin not found' });
     res.json({ success: true, data: buildAdminResponse(admin) });
   } catch (err) {
-    console.error('Fetch admin me failed:', err);
     res.status(500).json({ success: false, error: 'Failed to load admin profile' });
   }
 });
@@ -275,7 +270,6 @@ router.post('/users/create-admin', authMiddleware, requireRole('super_admin'), c
     const createdAdmin = await getDB().collection('admins').findOne({ _id: result.insertedId });
     res.status(201).json({ success: true, data: buildAdminResponse(createdAdmin) });
   } catch (err) {
-    console.error('Create admin failed:', err);
     res.status(500).json({ success: false, error: 'Failed to create admin' });
   }
 });
@@ -291,7 +285,6 @@ router.get('/users', authMiddleware, requireRole('super_admin'), async (req, res
 
     res.json({ success: true, data: admins.map(buildAdminResponse) });
   } catch (err) {
-    console.error('Fetch admins failed:', err);
     res.status(500).json({ success: false, error: 'Failed to load admins' });
   }
 });
@@ -317,7 +310,6 @@ router.delete('/users/:id', authMiddleware, requireRole('super_admin'), csrfProt
     await getDB().collection('admins').deleteOne({ _id: new ObjectId(id) });
     res.json({ success: true, data: { deleted: true } });
   } catch (err) {
-    console.error('Delete admin failed:', err);
     res.status(500).json({ success: false, error: 'Failed to delete admin' });
   }
 });
@@ -351,7 +343,6 @@ router.patch('/users/:id/status', authMiddleware, requireRole('super_admin'), cs
 
     res.json({ success: true, data: { updated: true, status: parsed.data.status } });
   } catch (err) {
-    console.error('Update admin status failed:', err);
     res.status(500).json({ success: false, error: 'Failed to update admin status' });
   }
 });

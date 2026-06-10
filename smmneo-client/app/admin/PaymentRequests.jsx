@@ -73,9 +73,7 @@ const PaymentRequests = () => {
       if (!result.success) throw new Error(result.error || 'Failed to update status');
       toast.success(`Request ${status} successfully`);
       await loadRequests();
-    } catch (err) {
-      console.error('Verify payment error:', err);
-      const message = err.message || 'Unable to update request status';
+    } catch (err) {      const message = err.message || 'Unable to update request status';
       toast.error(message);
       setError(message);
     } finally {

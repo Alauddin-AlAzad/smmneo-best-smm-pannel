@@ -34,14 +34,13 @@ router.post('/submit', async (req, res) => {
         fs.writeFileSync(full, buf);
         doc.screenshot = `/uploads/payments/${filename}`;
       } catch (err) {
-        console.error('Failed saving screenshot', err);
+        // Failed to save screenshot, continuing
       }
     }
 
     const result = await col.insertOne(doc);
     res.json({ success: true, data: { id: result.insertedId } });
   } catch (err) {
-    console.error('Error submit payment:', err);
     res.status(500).json({ success: false, error: 'Failed to submit' });
   }
 });
@@ -56,7 +55,6 @@ router.get('/', async (req, res) => {
     const docs = await col.find(q).sort({ createdAt: -1 }).limit(200).toArray();
     res.json({ success: true, data: docs });
   } catch (err) {
-    console.error('Error listing payments', err);
     res.status(500).json({ success: false, error: 'Failed to list' });
   }
 });
@@ -69,7 +67,6 @@ router.get('/numbers', async (req, res) => {
     const docs = await col.find({}).sort({ createdAt: -1 }).toArray();
     res.json({ success: true, data: docs });
   } catch (err) {
-    console.error('Error listing payment numbers', err);
     res.status(500).json({ success: false, error: 'Failed to list' });
   }
 });
@@ -77,19 +74,15 @@ router.get('/numbers', async (req, res) => {
 // POST /api/payments/numbers - add or update a payment number (admin)
 router.post('/numbers', async (req, res) => {
   try {
-    console.log('📝 POST /api/payments/numbers received:', req.body);
     const db = getDB();
     const { key, label, number, logo, meta } = req.body || {};
     if (!key || !number) {
-      console.warn('❌ Missing key or number');
       return res.status(400).json({ success: false, error: 'key and number required' });
     }
     const col = db.collection('paymentNumbers');
     const result = await col.updateOne({ key }, { $set: { key, label: label || key, number, logo: logo || '', meta: meta || {}, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true });
-    console.log('✅ Payment number saved:', { key, number });
     res.json({ success: true });
   } catch (err) {
-    console.error('❌ Error saving payment number', err);
     res.status(500).json({ success: false, error: 'Failed to save' });
   }
 });
@@ -119,7 +112,6 @@ router.post('/:id/verify', async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error('Error verifying payment', err);
     res.status(500).json({ success: false, error: 'Failed to verify' });
   }
 });
@@ -146,7 +138,6 @@ router.get('/payment-settings', async (req, res) => {
 
     return res.json({ success: true, data: {} });
   } catch (err) {
-    console.error('Error getting payment settings', err);
     res.status(500).json({ success: false, error: 'Failed' });
   }
 });
@@ -166,7 +157,6 @@ router.post('/payment-settings', async (req, res) => {
     await col.updateOne({ _id: 'global' }, { $set: { methods, updatedAt: new Date() } }, { upsert: true });
     res.json({ success: true });
   } catch (err) {
-    console.error('Error saving payment settings', err);
     res.status(500).json({ success: false, error: 'Failed to save' });
   }
 });
@@ -208,7 +198,6 @@ router.post('/add-fund-request', async (req, res) => {
     const result = await col.insertOne(doc);
     res.json({ success: true, data: { id: result.insertedId } });
   } catch (err) {
-    console.error('Error adding fund request', err);
     res.status(500).json({ success: false, error: 'Failed to save' });
   }
 });
