@@ -148,6 +148,13 @@ export const sidebarMenuItems = [
   },
   {
     id: 5,
+    label: 'Payment Requests',
+    icon: '💳',
+    path: '/admin/payment-requests',
+    category: 'main',
+  },
+  {
+    id: 6,
     label: 'Tickets',
     icon: '🎫',
     path: '/admin/tickets',

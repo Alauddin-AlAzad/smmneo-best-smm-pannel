@@ -1,111 +1,91 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useAuth } from '../components/AuthContext.jsx';
-import { useCurrency } from '../context/CurrencyContext.jsx';
-import toast from 'react-hot-toast';
 
 export default function AddFund() {
-  const { addFunds } = useAuth();
-  const { BDT_PER_USD } = useCurrency();
-  const [usdAmount, setUsdAmount] = useState('');
-  const [bdtAmount, setBdtAmount] = useState('');
-  const [activeCurrency, setActiveCurrency] = useState('USD');
-  const [submitting, setSubmitting] = useState(false);
+  const [usd, setUsd] = useState('');
+  const [bdt, setBdt] = useState('');
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const syncFromUsd = (value) => {
-    setUsdAmount(value);
-    setActiveCurrency('USD');
+  const conversionRate = 130; // 1 USD = 130 BDT
+  const minDepositBdt = 20;
 
-    if (value === '') {
-      setBdtAmount('');
+  function toNumber(v){
+    const n = Number(String(v).replace(/[^0-9.-]+/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function handleUsdChange(v){
+    setUsd(v);
+    if (v === '' || v === null) {
+      setBdt('');
       return;
     }
+    const n = toNumber(v);
+    if (n > 0) {
+      setBdt(String((n * conversionRate).toFixed(2)));
+    }
+  }
 
-    const numericValue = Number(value);
-    if (Number.isNaN(numericValue)) {
-      setBdtAmount('');
+  function handleBdtChange(v){
+    setBdt(v);
+    if (v === '' || v === null) {
+      setUsd('');
       return;
     }
+    const n = toNumber(v);
+    if (n > 0) {
+      setUsd(String((n / conversionRate).toFixed(2)));
+    }
+  }
 
-    setBdtAmount((numericValue * BDT_PER_USD).toFixed(2));
-  };
-
-  const syncFromBdt = (value) => {
-    setBdtAmount(value);
-    setActiveCurrency('BDT');
-
-    if (value === '') {
-      setUsdAmount('');
+  function handlePayNow(){
+    const amountBdt = toNumber(bdt || 0);
+    if (amountBdt < minDepositBdt){
+      setError(`Minimum deposit is ${minDepositBdt} BDT`);
       return;
     }
-
-    const numericValue = Number(value);
-    if (Number.isNaN(numericValue)) {
-      setUsdAmount('');
-      return;
-    }
-
-    setUsdAmount((numericValue / BDT_PER_USD).toFixed(4));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const rawAmount = activeCurrency === 'BDT' ? bdtAmount : usdAmount;
-    const val = Number(rawAmount);
-    if (!val || val <= 0) return toast.error('Enter a valid amount');
-    try {
-      setSubmitting(true);
-      await addFunds(val, activeCurrency);
-      toast.success('Funds added');
-      navigate('/dashboard');
-    } catch (err) {
-      // handled in addFunds
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    setError('');
+    navigate('/dashboard/add-fund/gateways', { state: { amount: amountBdt, bdt: amountBdt, usd: Number(usd) } });
+  }
 
   return (
-    <div className="max-w-md mx-auto p-4">
-      <h2 className="mb-3 text-lg font-bold">Add Funds</h2>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-700">USD</label>
-            <input
-              type="number"
-              step="any"
-              value={usdAmount}
-              onChange={(e) => syncFromUsd(e.target.value)}
-              placeholder="0.00"
-              className="w-full rounded-md border border-slate-200 px-3 py-2"
-            />
-          </div>
+    <div className="max-w-3xl mx-auto p-4">
+      <h2 className="mb-6 text-2xl font-semibold text-center text-slate-700">Add Funds</h2>
 
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-700">BDT</label>
-            <input
-              type="number"
-              step="any"
-              value={bdtAmount}
-              onChange={(e) => syncFromBdt(e.target.value)}
-              placeholder="0.00"
-              className="w-full rounded-md border border-slate-200 px-3 py-2"
-            />
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-md">
+        <div className="mb-4 text-sm font-semibold text-gray-700">Enter Amount</div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex-1 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-gray-500">Amount (BDT)</label>
+                <input type="number" step="0.01" min="0" placeholder="Enter amount" value={bdt} onChange={(e)=>handleBdtChange(e.target.value)} className="w-full mt-1 rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&]:-moz-appearance-textfield" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Amount (USD)</label>
+                <input type="number" step="0.01" min="0" placeholder="Enter amount" value={usd} onChange={(e)=>handleUsdChange(e.target.value)} className="w-full mt-1 rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&]:-moz-appearance-textfield" />
+              </div>
           </div>
         </div>
 
-        <p className="text-xs text-slate-500">
-          1 USD = {BDT_PER_USD} BDT
-        </p>
-
-        <div>
-          <button disabled={submitting} className="w-full rounded-md bg-violet-600 px-4 py-2 text-white">
-            {submitting ? 'Processing...' : 'Add Funds'}
-          </button>
+        <div className="grid grid-cols-2 gap-4 items-center mb-4">
+          <div>
+            <div className="text-xs text-gray-500">Conversion Rate</div>
+            <div className="text-sm font-semibold">1 USD = {conversionRate} BDT</div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-gray-500">Minimum deposit</div>
+            <div className="text-sm font-semibold">{minDepositBdt} BDT</div>
+          </div>
         </div>
-      </form>
+
+        {error && <div className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+        <div className="mt-5">
+          <button onClick={handlePayNow} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">Proceed to Pay</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -7,7 +7,7 @@ const navItems = [
   { label: "New order", to: "/dashboard" },
   { label: "Mass order", to: "/dashboard" },
   { label: "Orders", to: "/dashboard" },
-  { label: "Services", to: "/dashboard" },
+  { label: "Services", to: "/dashboard/services" },
   { label: "Add funds", to: "/dashboard" },
   { label: "Support Box", to: "/dashboard" },
   { label: "Recently Completed", to: "/dashboard" },

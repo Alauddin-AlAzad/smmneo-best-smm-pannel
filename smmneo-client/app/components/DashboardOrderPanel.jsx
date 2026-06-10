@@ -1,44 +1,61 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "../firebase_init.js";
-import { useCategoryHierarchy } from "../hooks/useCategoryHierarchy.js";
-import { useCurrency } from "../context/CurrencyContext.jsx";
-import { useAuth } from "./AuthContext.jsx";
-import { checkUserStatus, createOrder, checkLinkActiveOrder } from "../services/adminDashboardAPI.js";
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase_init.js';
+import { useLocation } from 'react-router';
+import { useCategoryHierarchy } from '../hooks/useCategoryHierarchy.js';
+import { useCurrency } from '../context/CurrencyContext.jsx';
+import { useAuth } from './AuthContext.jsx';
+import { checkUserStatus, createOrder, checkLinkActiveOrder } from '../services/adminDashboardAPI.js';
 
-const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange = null }) => {
+function getServiceLabel(service, formatCurrency, currency) {
+  if (!service) return '-- Select Service --';
+  return `${service.serviceId} - ${service.name} ~ ${formatCurrency(Number(service.price || 0), currency)}/1k`;
+}
+
+function matchesSearchTerm(service, term) {
+  const normalizedTerm = String(term || '').trim().toLowerCase();
+  if (!normalizedTerm) return false;
+
+  const serviceId = String(service?.serviceId ?? '').toLowerCase();
+  const name = String(service?.name ?? '').toLowerCase();
+  const category = String(service?.category ?? '').toLowerCase();
+  const subCategory = String(service?.subCategory ?? '').toLowerCase();
+
+  if (/^\d+$/.test(normalizedTerm)) {
+    return serviceId === normalizedTerm || serviceId.startsWith(normalizedTerm);
+  }
+
+  return serviceId.includes(normalizedTerm) || name.includes(normalizedTerm) || category.includes(normalizedTerm) || subCategory.includes(normalizedTerm);
+}
+
+export default function DashboardOrderPanel({ selectedCategory = 'Everything', onCategoryChange = null }) {
   const { user, refreshUserProfile } = useAuth();
-  const [activeTab, setActiveTab] = useState("new");
-  const [quantity, setQuantity] = useState("");
-  const [selectedService, setSelectedService] = useState(null);
-  const [link, setLink] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [openDropdown, setOpenDropdown] = useState(null); // Track which dropdown is open
-  const [searchInput, setSearchInput] = useState("");
-  const [lastOrder, setLastOrder] = useState(null); // Track last order for success display
-  const [lastError, setLastError] = useState(null); // Track last error for error display
   const { currency, formatCurrency } = useCurrency();
-  
-  // Use category hierarchy hook - category comes from parent or prop
+  const location = useLocation();
+
+  const [activeTab, setActiveTab] = useState('new');
+  const [quantity, setQuantity] = useState('');
+  const [selectedService, setSelectedService] = useState(null);
+  const [link, setLink] = useState('');
+  const [massOrderText, setMassOrderText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [lastOrder, setLastOrder] = useState(null);
+  const [lastError, setLastError] = useState(null);
+  const [pendingOrderConflict, setPendingOrderConflict] = useState(null);
+  const [pendingSubCategory, setPendingSubCategory] = useState(null);
+
   const {
-    categorySummary,
-    totalServicesCount,
-    currentCategoryCount,
     allServices,
-    categoryServices,
     subCategories,
     filteredServices,
     selectedSubCategory,
-    loading,
     handleSelectSubCategory,
     allSubCategories,
   } = useCategoryHierarchy(selectedCategory);
 
-  const [pendingSubCategory, setPendingSubCategory] = useState(null);
-
-  // If we have a pending subcategory after switching from Everything to a main category,
-  // apply it to the hook's selected subcategory once the main category is active.
   useEffect(() => {
     if (!pendingSubCategory) return;
     if (selectedCategory && selectedCategory !== 'Everything') {
@@ -47,55 +64,80 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
     }
   }, [pendingSubCategory, selectedCategory, handleSelectSubCategory]);
 
-  const visibleServices = useMemo(() => {
-    const term = searchInput.trim().toLowerCase();
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const orderAgainLink = localStorage.getItem('smmneo:orderAgainLink');
+    if (!orderAgainLink) return;
+    setLink(orderAgainLink);
+    localStorage.removeItem('smmneo:orderAgainLink');
+  }, []);
 
-    if (!term) {
-      return filteredServices;
+  useEffect(() => {
+    if (typeof window === 'undefined' || allServices.length === 0) return;
+    const params = new URLSearchParams(location.search || window.location.search);
+    const serviceId = String(params.get('service') || '').trim();
+    if (!serviceId) return;
+
+    const matchedService = allServices.find((service) => String(service.serviceId) === serviceId);
+    if (!matchedService) return;
+
+    setSelectedService(matchedService);
+    setSearchInput('');
+
+    if (typeof onCategoryChange === 'function' && matchedService.category && matchedService.category !== selectedCategory) {
+      onCategoryChange(matchedService.category);
     }
 
+    if (matchedService.subCategory) {
+      handleSelectSubCategory(matchedService.subCategory);
+    }
+  }, [allServices, location.search, onCategoryChange, selectedCategory, handleSelectSubCategory]);
+
+  useEffect(() => {
+    if (!pendingOrderConflict) return;
+
+    const currentLink = link.trim();
+    const conflictLink = pendingOrderConflict.link || '';
+
+    if (currentLink && currentLink !== conflictLink) {
+      setPendingOrderConflict(null);
+      setLastError(null);
+    }
+  }, [link, pendingOrderConflict]);
+
+  const visibleServices = useMemo(() => {
+    const term = searchInput.trim().toLowerCase();
+    if (!term) return filteredServices;
     return allServices.filter((service) => matchesSearchTerm(service, term));
   }, [searchInput, filteredServices, allServices]);
 
   const searchSuggestions = useMemo(() => {
     const term = searchInput.trim().toLowerCase();
-
-    if (!term) {
-      return [];
-    }
-
-    return allServices
-      .filter((service) => matchesSearchTerm(service, term))
-      .slice(0, 8);
+    if (!term) return [];
+    return allServices.filter((service) => matchesSearchTerm(service, term)).slice(0, 8);
   }, [searchInput, allServices]);
 
-  // Auto-select first service when visible services change
   useEffect(() => {
     if (visibleServices.length > 0 && !selectedService) {
       setSelectedService(visibleServices[0]);
-    } else if (visibleServices.length > 0 && selectedService) {
-      const serviceStillExists = visibleServices.some(
-        (s) => String(s.serviceId) === String(selectedService.serviceId)
-      );
-      if (!serviceStillExists) {
-        setSelectedService(visibleServices[0]);
-      }
-    } else if (searchInput.trim()) {
-      setSelectedService(null);
+      return;
     }
+
+    if (visibleServices.length > 0 && selectedService) {
+      const stillExists = visibleServices.some((service) => String(service.serviceId) === String(selectedService.serviceId));
+      if (!stillExists) setSelectedService(visibleServices[0]);
+      return;
+    }
+
+    if (searchInput.trim()) setSelectedService(null);
   }, [visibleServices, selectedService, searchInput]);
 
-  // Keep the category dropdown aligned with the best search match.
   useEffect(() => {
     const term = searchInput.trim();
-    if (!term || visibleServices.length === 0) {
-      return;
-    }
+    if (!term || visibleServices.length === 0) return;
 
     const bestMatch = visibleServices[0];
-    if (!bestMatch) {
-      return;
-    }
+    if (!bestMatch) return;
 
     if (selectedService?.serviceId !== bestMatch.serviceId) {
       setSelectedService(bestMatch);
@@ -110,59 +152,56 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
     }
   }, [searchInput, visibleServices, selectedService?.serviceId, onCategoryChange, selectedCategory, selectedSubCategory, handleSelectSubCategory]);
 
-  const handleSearchSuggestionSelect = (service) => {
-    if (!service) return;
-
-    setSearchInput('');
-    setSelectedService(service);
-
-    if (typeof onCategoryChange === 'function' && service.category) {
-      onCategoryChange(service.category);
-    }
-
-    if (service.subCategory) {
-      handleSelectSubCategory(service.subCategory);
-    }
-
-    setOpenDropdown(null);
-  };
-
-  // Auto-select the first available subcategory when a category's subcategories load.
   useEffect(() => {
-    if (subCategories && subCategories.length > 0 && !selectedSubCategory) {
+    if (subCategories.length > 0 && !selectedSubCategory) {
       handleSelectSubCategory(subCategories[0]);
     }
   }, [subCategories, selectedSubCategory, handleSelectSubCategory]);
 
-  // When Everything loads, auto-select the first main category -> first subcategory
   useEffect(() => {
     if (selectedCategory === 'Everything' && Array.isArray(allSubCategories) && allSubCategories.length > 0 && !selectedSubCategory) {
       const firstGroup = allSubCategories[0];
       const firstSub = firstGroup?.subcategories?.[0];
       if (firstGroup && firstSub) {
-        if (typeof onCategoryChange === 'function') {
-          onCategoryChange(firstGroup.main);
-          setPendingSubCategory(firstSub);
-        }
+        if (typeof onCategoryChange === 'function') onCategoryChange(firstGroup.main);
+        setPendingSubCategory(firstSub);
       }
     }
   }, [selectedCategory, allSubCategories, selectedSubCategory, onCategoryChange]);
 
-  // Note: main categories behave like Everything — user must choose a subcategory explicitly
-
-  // Close dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (openDropdown && !e.target.closest('[class*="relative"]')) {
+    const handleClickOutside = (event) => {
+      if (openDropdown && !event.target.closest('[class*="relative"]')) {
         setOpenDropdown(null);
       }
     };
+
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [openDropdown]);
 
-  const handleSubmitOrder = async (e) => {
-    e.preventDefault();
+  const charge = quantity && selectedService
+    ? formatCurrency((parseFloat(quantity) / 1000) * selectedService.price, currency)
+    : '';
+
+  const serviceInfo = selectedService
+    ? {
+        averageTime: selectedService.averageTime || '2-4 minutes',
+        start: selectedService.start || '0-1 minute',
+        speed: selectedService.speed || 'Not specified',
+        refill: selectedService.refill ? 'Refill available' : 'No refill info',
+        quality: selectedService.quality || 'Standard',
+        location: selectedService.location || 'Global',
+      }
+    : null;
+
+  const serviceById = useMemo(
+    () => new Map(allServices.map((service) => [String(service.serviceId), service])),
+    [allServices],
+  );
+
+  const handleSubmitOrder = async (event) => {
+    event.preventDefault();
 
     if (!selectedService || !link || !quantity) {
       setLastError('Please fill in all required fields');
@@ -170,8 +209,8 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
       return;
     }
 
-    const qty = parseInt(quantity);
-    if (qty < selectedService.minQuantity || qty > selectedService.maxQuantity) {
+    const qty = parseInt(quantity, 10);
+    if (qty < Number(selectedService.minQuantity || 0) || qty > Number(selectedService.maxQuantity || 0)) {
       setLastError(`Quantity must be between ${selectedService.minQuantity} and ${selectedService.maxQuantity}`);
       setLastOrder(null);
       return;
@@ -179,96 +218,66 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
 
     setSubmitting(true);
 
-    // Check user status before placing order
-    if (user && user.email) {
-      try {
-        const statusData = await checkUserStatus(user.email);
-        
-        if (statusData && statusData.status === 'suspended') {
-          setLastError('❌ Your account has been suspended. You cannot place new orders. Please contact support.');
-          setLastOrder(null);
-          setSubmitting(false);
-          return;
-        }
-
-        if (statusData && statusData.status === 'inactive') {
-          setLastError('⚠️ Your account is inactive. Please contact support to reactivate your account.');
-          setLastOrder(null);
-          setSubmitting(false);
-          return;
-        }
-      } catch (err) {
-        console.error('Error checking user status:', err);
-        // Continue if status check fails (non-blocking)
-      }
-    }
-
-    // Check for active orders with same link
-    if (user && user.email && link) {
-      try {
-        const linkCheckData = await checkLinkActiveOrder(user.email, link);
-        
-        if (linkCheckData && linkCheckData.hasActiveOrder) {
-          setLastError('× You have active order with this link. Please wait until order being completed.');
-          setLastOrder(null);
-          setSubmitting(false);
-          return;
-        }
-      } catch (err) {
-        console.error('Error checking active orders:', err);
-        // Continue if check fails (non-blocking)
-      }
-    }
-
-    // Create order and deduct balance
     try {
+      const statusData = user?.email ? await checkUserStatus(user.email) : null;
+      if (statusData?.status === 'suspended') {
+        setLastError('❌ Your account has been suspended. You cannot place new orders. Please contact support.');
+        setLastOrder(null);
+        return;
+      }
+
+      if (statusData?.status === 'inactive') {
+        setLastError('⚠️ Your account is inactive. Please contact support to reactivate your account.');
+        setLastOrder(null);
+        return;
+      }
+
+      const linkCheckData = user?.email ? await checkLinkActiveOrder(user.email, link) : null;
+      if (linkCheckData?.hasActiveOrder) {
+        const activeOrder = linkCheckData.activeOrder;
+        setPendingOrderConflict({
+          link: link.trim(),
+          orderId: activeOrder?.orderId || 'Unknown',
+          service: activeOrder?.service || 'Service',
+          status: activeOrder?.status || 'pending',
+        });
+        setLastError('× You have active order with this link. Please wait until order being completed.');
+        setLastOrder(null);
+        return;
+      }
+
       const chargeNumeric = parseFloat(charge.replace(/[^0-9.-]/g, '')) || 0;
-      const orderData = await createOrder(
-        user.email,
-        selectedService.name,
+      const orderData = await createOrder(user.email, selectedService.name, link, quantity, chargeNumeric, currency, selectedService.serviceId);
+
+      setLastOrder({
+        id: orderData.orderId,
+        service: selectedService.name,
         link,
         quantity,
-        chargeNumeric,
-        currency
-      );
+        charge,
+        balance: formatCurrency(orderData.newBalance, currency),
+      });
+      setLastError(null);
+      setPendingOrderConflict(null);
+      setLink('');
+      setQuantity('');
 
-      if (orderData) {
-        // Get new balance formatted
-        const newBalance = formatCurrency(orderData.newBalance, currency);
-
-        // Display success message
-        setLastOrder({
-          id: orderData.orderId,
-          service: selectedService.name,
-          link: link,
-          quantity: quantity,
-          charge: charge,
-          balance: newBalance,
-        });
-        setLastError(null);
-
-        setLink("");
-        setQuantity("");
-
-        // Update Firestore with new balance immediately
-        if (auth.currentUser) {
-          try {
-            const userRef = doc(db, "users", auth.currentUser.uid);
-            await setDoc(userRef, {
-              balanceUSD: orderData.newBalance,
-              totalOrders: (user?.totalOrders || 0) + 1,
-              totalSpent: (parseFloat(user?.totalSpent) || 0) + chargeNumeric,
-            }, { merge: true });
-          } catch (firestoreErr) {
-            console.error('Error updating Firestore balance:', firestoreErr);
-          }
+      if (auth.currentUser) {
+        try {
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          await setDoc(userRef, {
+            balanceUSD: orderData.newBalance,
+            totalOrders: (user?.totalOrders || 0) + 1,
+            totalSpent: (parseFloat(user?.totalSpent) || 0) + chargeNumeric,
+          }, { merge: true });
+        } catch (firestoreErr) {
+          console.error('Error updating Firestore balance:', firestoreErr);
         }
-
-        // Refresh user profile to sync with MongoDB
-        setTimeout(() => {
-          refreshUserProfile().catch(err => console.error('Error refreshing profile:', err));
-        }, 500);
       }
+
+      setTimeout(() => {
+        refreshUserProfile().catch((err) => console.error('Error refreshing profile:', err));
+      }, 500);
     } catch (err) {
       console.error('Error creating order:', err);
       setLastError(err.message || 'Failed to create order');
@@ -278,375 +287,160 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
     }
   };
 
-  // Note: we no longer replace the whole panel while loading. Show inline subtle loading UI instead.
-
-  const serviceInfo = selectedService ? {
-    id: selectedService.serviceId.toString(),
-    title: `${selectedService.serviceId} ~ ${selectedService.name} ~ ${formatCurrency(selectedService.price, currency)} per 1000`,
-    description: {
-      link: link || "https://example.com",
-      text: getServiceDescription(selectedService),
-      start: getServiceStartTime(selectedService),
-      speed: getServiceSpeed(selectedService),
-      refill: getServiceRefill(selectedService),
-      quality: getServiceQuality(selectedService),
-      location: getServiceLocation(selectedService),
-    },
-    notes: [
-      'When the service is experiencing high demand, the starting speed may vary.',
-      'Please avoid placing a second order on the same link until the current order is fully completed in the system.',
-      'If you encounter any issues with the service, kindly reach out to our support team for assistance.',
-      'Do not place orders for private accounts or private links. Orders for private content will not be processed and may not be refunded.',
-    ],
-    min: selectedService.minQuantity,
-    max: selectedService.maxQuantity,
-    averageTime: getServiceAverageTime(selectedService),
-    recentTimes: [
-      `${selectedService.maxQuantity} = ${getServiceAverageTime(selectedService)}`,
-      `${Math.round(selectedService.maxQuantity / 2)} = ${getServiceSpeed(selectedService)}`,
-      `${selectedService.minQuantity} = ${getServiceStartTime(selectedService)}`,
-    ],
-  } : null;
-
-  function sanitizeServiceName(name) {
-    if (!name) return '';
-    let s = String(name);
-    // remove bracketed tags like [ ... ]
-    s = s.replace(/\[.*?\]/g, '');
-    // take the portion before first tilde (~) if present
-    if (s.includes('~')) s = s.split('~')[0];
-    return s.replace(/\s+/g, ' ').trim();
-  }
-
-  function formatServicePrice(service) {
-    const price = Number.parseFloat(service?.price ?? 0) || 0;
-    return `${formatCurrency(price, currency)}/1k`;
-  }
-
-  
-
-  function getServiceLabel(service) {
-    if (!service) return '-- Select Service --';
-    return `${service.serviceId} - ${service.name} ~ ${formatServicePrice(service)}`;
-  }
-
-  function matchesSearchTerm(service, term) {
-    const normalizedTerm = String(term || '').trim().toLowerCase();
-    if (!normalizedTerm) return false;
-
-    const serviceId = String(service?.serviceId ?? '').toLowerCase();
-    const name = String(service?.name ?? '').toLowerCase();
-    const category = String(service?.category ?? '').toLowerCase();
-    const rawCategory = String(service?.rawCategory ?? '').toLowerCase();
-    const subCategory = String(service?.subCategory ?? '').toLowerCase();
-
-    const isNumericSearch = /^\d+$/.test(normalizedTerm);
-    if (isNumericSearch) {
-      return serviceId === normalizedTerm || serviceId.startsWith(normalizedTerm);
-    }
-
-    return (
-      serviceId.includes(normalizedTerm) ||
-      name.includes(normalizedTerm) ||
-      category.includes(normalizedTerm) ||
-      rawCategory.includes(normalizedTerm) ||
-      subCategory.includes(normalizedTerm)
-    );
-  }
-
-  function normalizeToList(value) {
-    if (Array.isArray(value)) {
-      return value.map((item) => String(item).trim()).filter(Boolean);
-    }
-
-    return String(value)
-      .split(/\n|\r|\u2022|\u2023|\u25E6|\u2043|;|\|/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  function findRawField(service, keys) {
-    const raw = service?.raw || {};
-    for (const key of keys) {
-      const value = raw[key];
-      if (value !== undefined && value !== null && String(value).trim() !== '') {
-        return value;
-      }
-    }
-    return '';
-  }
-
-  function getServiceDescription(service) {
-    const text = findRawField(service, ['description', 'details', 'desc', 'content', 'note', 'notes']);
-    if (text) {
-      return String(text).trim();
-    }
-
-    return `${service?.name || 'Service'} is provided by the selected API provider.`;
-  }
-
-  function getServiceTextSource(service) {
-    return `${service?.name || ''} ${getServiceDescription(service)}`.trim();
-  }
-
-  function extractFieldFromText(text, labels) {
-    const source = String(text || '');
-    for (const label of labels) {
-      const pattern = new RegExp(`${label}\\s*[:\\-]\\s*([^\\n\\r•|]+)`, 'i');
-      const match = source.match(pattern);
-      if (match?.[1]) {
-        return match[1].trim();
-      }
-    }
-
-    return '';
-  }
-
-  function formatDurationValue(value) {
-    const normalized = String(value || '').trim();
-    if (!normalized) {
-      return '';
-    }
-
-    if (/^(no|none|n\/a|na)$/i.test(normalized)) {
-      return 'No';
-    }
-
-    if (/^lifetime$/i.test(normalized) || /^life\s*time$/i.test(normalized)) {
-      return 'Lifetime';
-    }
-
-    const dayMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*(?:d|day|days)?$/i);
-    if (dayMatch) {
-      const amount = dayMatch[1];
-      return `${amount}D`;
-    }
-
-    return normalized;
-  }
-
-  function getServiceRefill(service) {
-    const sourceParts = [
-      service?.name,
-      service?.title,
-      service?.description,
-      service?.raw?.name,
-      service?.raw?.title,
-      service?.raw?.description,
-      service?.raw?.details,
-      service?.raw?.desc,
-      service?.raw?.content,
-      service?.raw?.note,
-      service?.raw?.notes,
-      findRawField(service, ['refill_text', 'refill_period', 'refill_days', 'refill_duration', 'refillStatus', 'refil_text', 'refil_period', 'refil_days']),
-    ]
+  const parseMassOrders = () => {
+    return String(massOrderText || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
       .filter(Boolean)
-      .map((value) => String(value).replace(/\s+/g, ' ').trim());
+      .map((line, index) => {
+        const parts = line.split('|').map((part) => part.trim());
+        if (parts.length < 3) {
+          throw new Error(`Line ${index + 1} must use service_id | link | quantity`);
+        }
 
-    const source = sourceParts.join(' ').normalize('NFKD').replace(/\s+/g, ' ').toLowerCase();
+        const [serviceId, orderLink, quantityValue] = parts;
+        const service = serviceById.get(String(serviceId));
+        if (!service) {
+          throw new Error(`Unknown service ID on line ${index + 1}: ${serviceId}`);
+        }
 
-    const noRefillMatch = source.match(/\bno\s*refil(l)?\b|\bno\s*refill\b/);
-    if (noRefillMatch) {
-      return 'No';
-    }
+        const parsedQuantity = Number(quantityValue);
+        if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+          throw new Error(`Invalid quantity on line ${index + 1}`);
+        }
 
-    const refillMatch = source.match(/\b(?:refill|refil)\b\s*(?:[:\-]?\s*)?(lifetime|\d+(?:\.\d+)?\s*(?:d|day|days)?)\b/)
-      || source.match(/\b(lifetime|\d+(?:\.\d+)?\s*(?:d|day|days)?)\b\s*(?:[:\-]?\s*)?\b(?:refill|refil)\b/)
-      || source.match(/\b(?:refill|refil)\b\s*(?:[:\-]?\s*)?(\d+\s*-\s*\d+\s*(?:d|day|days)?)\b/);
-
-    if (refillMatch?.[1]) {
-      return formatDurationValue(refillMatch[1]);
-    }
-
-    if (service?.raw?.refill === true || service?.refill === true) {
-      return 'Refill available';
-    }
-
-    return 'No refill info';
-  }
-
-  function getServiceQuality(service) {
-    const sourceParts = [
-      service?.name,
-      service?.title,
-      service?.description,
-      service?.raw?.name,
-      service?.raw?.title,
-      service?.raw?.description,
-      service?.raw?.details,
-      service?.raw?.desc,
-      service?.raw?.content,
-      service?.raw?.note,
-      service?.raw?.notes,
-      findRawField(service, ['quality', 'service_quality', 'account_type', 'typeLabel', 'quality_type', 'qualityType']),
-    ]
-      .filter(Boolean)
-      .map((value) => String(value).replace(/\s+/g, ' ').trim());
-
-    const source = sourceParts.join(' ').normalize('NFKD').replace(/\s+/g, ' ').toLowerCase();
-
-    const explicitQuality = source.match(/\b(?:quality|type|account\s*type)\s*[:\-]\s*([^\n\r•|]+)/i);
-    if (explicitQuality?.[1]) {
-      const value = explicitQuality[1].trim();
-      if (value) return value;
-    }
-
-    if (/\breal\s*account\b|\breal\b/i.test(source)) return 'Real';
-    if (/\bhidden\b/i.test(source)) return 'Hidden';
-    if (/\bbot\b/i.test(source)) return 'Bot';
-    if (/\bpremium\b/i.test(source)) return 'Premium';
-    if (/\bstandard\b/i.test(source)) return 'Standard';
-
-    return 'Standard';
-  }
-
-  function getServiceLocation(service) {
-    const explicit = findRawField(service, ['location', 'country', 'region', 'geo', 'area']);
-    if (explicit) {
-      return String(explicit).trim();
-    }
-
-    const source = `${service?.name || ''} ${getServiceDescription(service)}`.toLowerCase();
-    if (source.includes('bangladesh') || source.includes('bangladeshi') || source.includes('bd')) return 'Bangladesh';
-    if (source.includes('global') || source.includes('worldwide') || source.includes('ww')) return 'Global';
-    return 'Global';
-  }
-
-  function getServiceSpeed(service) {
-    const explicit = findRawField(service, ['speed', 'delivery_speed', 'start_speed', 'process_speed']);
-    if (explicit) {
-      return String(explicit).trim();
-    }
-
-    const source = getServiceTextSource(service);
-    const textMatch = extractFieldFromText(source, ['speed', 'daily speed', 'delivery speed', 'start speed']);
-    if (textMatch) {
-      return textMatch;
-    }
-
-    const dayMatch = source.match(/(\d+(?:\.\d+)?\s*(?:k|m)?\s*(?:-\s*\d+(?:\.\d+)?\s*(?:k|m)?)?)\s*(?:\/|per\s*)?(?:day|days|d)\b/i);
-    if (dayMatch?.[1]) {
-      return `${dayMatch[1].replace(/\s+/g, '')} per day`;
-    }
-
-    const instantaneousMatch = source.match(/instant(?:\s+delivery|\s+start)?/i);
-    if (instantaneousMatch) {
-      return 'Instant';
-    }
-
-    return 'Not specified';
-  }
-
-  function getServiceStartTime(service) {
-    const explicit = findRawField(service, ['start', 'start_time', 'startTime', 'eta']);
-    if (explicit) {
-      return String(explicit).trim();
-    }
-
-    const source = getServiceTextSource(service);
-    const textMatch = extractFieldFromText(source, ['start', 'starting time', 'start time', 'delivery time']);
-    if (textMatch) {
-      return textMatch;
-    }
-
-    const hourRange = source.match(/\b\d+\s*-\s*\d+\s*(?:h|hr|hrs|hour|hours)\b/i);
-    if (hourRange?.[0]) {
-      return hourRange[0].replace(/\s+/g, ' ').replace(/hours?$/i, 'hrs').replace(/hr?s?$/i, 'hrs');
-    }
-
-    if (/\binstant\b/i.test(source)) {
-      return 'Instant';
-    }
-
-    return service?.dripFeed ? '0-2 hours' : '0-1 minute';
-  }
-
-  function getServiceAverageTime(service) {
-    const explicit = findRawField(service, ['average_time', 'averageTime', 'avg_time', 'eta']);
-    if (explicit) {
-      return String(explicit).trim();
-    }
-
-    return service?.dripFeed ? '24-72 hours' : '2-4 minutes';
-  }
-
-  const charge = quantity && selectedService
-    ? formatCurrency((parseFloat(quantity) / 1000) * selectedService.price, currency)
-    : "";
-
-  // Custom Dropdown Component
-  const CustomDropdown = ({ id, label, value, options, onChange, isOpen, setIsOpen, getDisplayText }) => {
-    return (
-      <div className="relative">
-        {label && <label className="mb-1.5 block text-xs md:text-sm font-bold text-slate-700 uppercase tracking-wide sr-only">{label}</label>}
-        <button
-          onClick={() => setOpenDropdown(openDropdown === id ? null : id)}
-          className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 md:py-3 text-xs md:text-sm text-slate-900 font-semibold outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm cursor-pointer text-left flex items-center justify-between hover:bg-slate-50"
-        >
-          <span className="truncate">{getDisplayText(value)}</span>
-          <span className="ml-2 flex-shrink-0 text-slate-400">▼</span>
-        </button>
-        
-        {openDropdown === id && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpenDropdown(null);
-                }}
-                className={`w-full px-4 py-2.5 text-left text-xs md:text-sm border-b border-slate-100 last:border-b-0 transition whitespace-normal break-words ${
-                  value === option.value
-                    ? 'bg-violet-100 text-violet-900 font-bold'
-                    : 'hover:bg-slate-50 text-slate-900'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+        return { service, link: orderLink, quantity: parsedQuantity };
+      });
   };
 
-  
+  const handleMassSubmitOrder = async (event) => {
+    event.preventDefault();
+
+    let orders;
+    try {
+      orders = parseMassOrders();
+    } catch (err) {
+      setLastError(err.message || 'Please check your mass order lines');
+      setLastOrder(null);
+      return;
+    }
+
+    if (!orders.length) {
+      setLastError('Please paste at least one mass order line');
+      setLastOrder(null);
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const statusData = user?.email ? await checkUserStatus(user.email) : null;
+      if (statusData?.status === 'suspended') {
+        setLastError('❌ Your account has been suspended. You cannot place new orders. Please contact support.');
+        setLastOrder(null);
+        return;
+      }
+
+      if (statusData?.status === 'inactive') {
+        setLastError('⚠️ Your account is inactive. Please contact support to reactivate your account.');
+        setLastOrder(null);
+        return;
+      }
+
+      const createdOrders = [];
+      for (const order of orders) {
+        const chargeNumeric = (order.quantity / 1000) * Number(order.service.price || 0);
+        const orderData = await createOrder(user.email, order.service.name, order.link, order.quantity, chargeNumeric, currency, order.service.serviceId);
+        createdOrders.push({ orderData, chargeNumeric, service: order.service, link: order.link, quantity: order.quantity });
+      }
+
+      const totalCharge = createdOrders.reduce((sum, item) => sum + item.chargeNumeric, 0);
+      const lastCreated = createdOrders[createdOrders.length - 1];
+      setLastOrder({
+        id: `${createdOrders.length} orders submitted`,
+        service: 'Mass Order',
+        link: lastCreated?.link || 'See order history',
+        quantity: String(createdOrders.length),
+        charge: formatCurrency(totalCharge, currency),
+        balance: formatCurrency(lastCreated?.orderData?.newBalance || 0, currency),
+      });
+      setLastError(null);
+      setPendingOrderConflict(null);
+      setMassOrderText('');
+
+      if (auth.currentUser && lastCreated?.orderData) {
+        try {
+          const userRef = doc(db, 'users', auth.currentUser.uid);
+          await setDoc(userRef, { balanceUSD: lastCreated.orderData.newBalance }, { merge: true });
+        } catch (firestoreErr) {
+          console.error('Error updating Firestore balance:', firestoreErr);
+        }
+      }
+
+      setTimeout(() => {
+        refreshUserProfile().catch((err) => console.error('Error refreshing profile:', err));
+      }, 500);
+
+      toast.success(`Submitted ${createdOrders.length} orders`);
+    } catch (err) {
+      console.error('Error creating mass order:', err);
+      setLastError(err.message || 'Failed to create mass order');
+      setLastOrder(null);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const CustomDropdown = ({ id, label, value, options, onChange, isOpen, getDisplayText }) => (
+    <div className="relative">
+      {label && <label className="sr-only mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-700 md:text-sm">{label}</label>}
+      <button
+        type="button"
+        onClick={() => setOpenDropdown(openDropdown === id ? null : id)}
+        className="flex w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-left text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50 focus:border-violet-400 focus:ring-2 focus:ring-violet-200 md:py-3 md:text-sm"
+      >
+        <span className="truncate">{getDisplayText(value)}</span>
+        <span className="ml-2 shrink-0 text-slate-400">▼</span>
+      </button>
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-lg">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                setOpenDropdown(null);
+              }}
+              className={`w-full border-b border-slate-100 px-4 py-2.5 text-left text-xs transition last:border-b-0 md:text-sm ${
+                value === option.value ? 'bg-violet-100 font-bold text-violet-900' : 'text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <div className="grid gap-4 md:gap-6 grid-cols-1 lg:grid-cols-[1.5fr_1fr] w-full overflow-hidden">
-      {/* LEFT PANEL */}
-      <div className="rounded-[3px] border border-slate-200/70 bg-white p-3 md:p-5 shadow-sm w-full min-w-0 overflow-x-hidden">
-        {/* Tabs */}
-        <div className="mb-4 md:mb-5 flex flex-wrap gap-2 md:gap-3">
-          <button
-            onClick={() => setActiveTab("new")}
-            className={`flex items-center gap-2 rounded-full px-3 md:px-5 py-2 text-xs md:text-sm font-bold transition ${
-              activeTab === "new"
-                ? "bg-violet-600 text-white"
-                : "bg-slate-100 text-slate-600 hover:bg-violet-50"
-            }`}
-          >
+    <div className="grid w-full grid-cols-1 gap-4 overflow-hidden md:gap-6 lg:grid-cols-[1.5fr_1fr]">
+      <div className="w-full min-w-0 overflow-hidden rounded-[3px] border border-slate-200/70 bg-white p-3 shadow-sm md:p-5">
+        <div className="mb-4 flex flex-wrap gap-2 md:mb-5 md:gap-3">
+          <button type="button" onClick={() => setActiveTab('new')} className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-bold transition md:px-5 md:text-sm ${activeTab === 'new' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
             🛒 New Order
           </button>
-          <button
-            onClick={() => setActiveTab("mass")}
-            className={`flex items-center gap-2 rounded-full px-3 md:px-5 py-2 text-xs md:text-sm font-bold transition ${
-              activeTab === "mass"
-                ? "bg-slate-800 text-white"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
+          <button type="button" onClick={() => setActiveTab('mass')} className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs font-bold transition md:px-5 md:text-sm ${activeTab === 'mass' ? 'bg-violet-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-violet-50'}`}>
             📋 Mass Order
           </button>
         </div>
 
-        {/* Success Message - Compact */}
         {lastOrder && (
-          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-4 flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start gap-3 mb-3">
-                <span className="text-2xl font-bold text-green-600 flex-shrink-0">✓</span>
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-green-200 bg-green-50 p-4">
+            <div className="min-w-0 flex-1">
+              <div className="mb-3 flex items-start gap-3">
+                <span className="shrink-0 text-2xl font-bold text-green-600">✓</span>
                 <h3 className="text-lg font-bold text-green-900">Your order received</h3>
               </div>
               <div className="space-y-1.5 text-sm text-green-900">
@@ -658,45 +452,57 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
                 <div><span className="font-semibold">Balance:</span> ${lastOrder.balance}</div>
               </div>
             </div>
-            <button
-              onClick={() => setLastOrder(null)}
-              className="text-green-700 hover:text-green-900 font-bold text-lg flex-shrink-0 mt-1"
-            >
-              ×
-            </button>
+            <button type="button" onClick={() => setLastOrder(null)} className="shrink-0 text-lg font-bold text-green-700 hover:text-green-900">×</button>
           </div>
         )}
 
-        {/* Error Message - Compact */}
         {lastError && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-bold text-red-900 flex items-center gap-2">
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3" role="alert" aria-live="polite">
+            <div className="min-w-0 flex-1">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-red-900">
                 <span className="text-base">✕</span>
-                Error
+                {pendingOrderConflict ? 'Order Conflict' : 'Error'}
               </h3>
               <p className="mt-2 text-xs text-red-800">{lastError}</p>
+              {pendingOrderConflict && (
+                <div className="mt-3 border-t border-red-200 pt-3">
+                  <div className="space-y-1 rounded bg-red-100 p-2 text-xs">
+                    <p><span className="font-semibold">Order ID:</span> {pendingOrderConflict.orderId}</p>
+                    <p><span className="font-semibold">Service:</span> {pendingOrderConflict.service}</p>
+                    <p><span className="font-semibold">Status:</span> <span className="font-bold uppercase text-yellow-700">{pendingOrderConflict.status}</span></p>
+                    <p className="mt-2 font-semibold italic text-red-700">⏱️ Please check back once this order is completed.</p>
+                  </div>
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => setLastError(null)}
-              className="text-red-700 hover:text-red-900 font-bold text-lg flex-shrink-0"
-            >
-              ×
-            </button>
+            <button type="button" onClick={() => { setLastError(null); setPendingOrderConflict(null); }} className="shrink-0 text-lg font-bold text-red-700 hover:text-red-900">×</button>
           </div>
         )}
 
-        {/* Currency selection is handled in the topbar; removed inline toggle */}
-
-        <div className="space-y-3 md:space-y-4">
-            {/* Search Bar */}
+        {activeTab === 'mass' ? (
+          <div className="space-y-4">
+            <div>
+              <h2 className="mb-3 text-lg font-extrabold text-slate-900 md:text-xl">One order per line in format</h2>
+              <textarea
+                value={massOrderText}
+                onChange={(e) => { setMassOrderText(e.target.value); setLastError(null); }}
+                placeholder="service_id | link | quantity"
+                className="min-h-90 w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-100 md:min-h-105"
+              />
+            </div>
+            <button type="button" onClick={handleMassSubmitOrder} disabled={submitting} className="w-full rounded-md bg-linear-to-r from-violet-600 to-fuchsia-600 py-3 text-sm font-bold text-white shadow-md transition hover:from-violet-500 hover:to-fuchsia-500 hover:shadow-lg disabled:opacity-50">
+              {submitting ? 'Processing...' : 'Submit'}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3 md:space-y-4">
             <div className="relative">
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="🔍 Search any category, service name, ID, or price"
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 shadow-sm"
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs text-slate-900 shadow-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200 md:text-sm"
               />
               {searchSuggestions.length > 0 && (
                 <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
@@ -704,267 +510,192 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
                     <button
                       key={`${service.serviceId}-${service.name}`}
                       type="button"
-                      onClick={() => handleSearchSuggestionSelect(service)}
+                      onClick={() => { setSearchInput(''); setSelectedService(service); if (typeof onCategoryChange === 'function' && service.category) onCategoryChange(service.category); if (service.subCategory) handleSelectSubCategory(service.subCategory); setOpenDropdown(null); }}
                       className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-violet-50"
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-slate-900">{getServiceLabel(service)}</div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          {service.category}{service.subCategory ? ` · ${service.subCategory}` : ''}
-                        </div>
+                        <div className="truncate text-sm font-semibold text-slate-900">{getServiceLabel(service, formatCurrency, currency)}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{service.category}{service.subCategory ? ` · ${service.subCategory}` : ''}</div>
                       </div>
-                      <span className="shrink-0 rounded-full bg-violet-100 px-2 py-1 text-[11px] font-bold text-violet-700">
-                        {service.category}
-                      </span>
+                      <span className="shrink-0 rounded-full bg-violet-100 px-2 py-1 text-[11px] font-bold text-violet-700">{service.category}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Category Dropdown - show main categories when Everything is selected */}
-          <div>
-            {selectedCategory === "Everything" ? (
-              <CustomDropdown
-                id="categoryDropdown"
-                value={`${selectedCategory}||`}
-                options={Array.isArray(allSubCategories) ? allSubCategories.flatMap((group) =>
-                  group.subcategories.map((sub) => ({
-                    value: `${group.main}||${sub}`,
-                    label: `${group.main} - ${sub}`,
-                  }))
-                ) : []}
-                onChange={(val) => {
-                  if (!val) return;
-                  const [main, sub] = val.split('||');
+            <div>
+              {selectedCategory === 'Everything' ? (
+                <CustomDropdown
+                  id="categoryDropdown"
+                  value={`${selectedCategory}||`}
+                  options={Array.isArray(allSubCategories) ? allSubCategories.flatMap((group) => group.subcategories.map((sub) => ({ value: `${group.main}||${sub}`, label: `${group.main} - ${sub}` }))) : []}
+                  onChange={(val) => {
+                    if (!val) return;
+                    const [main, sub] = val.split('||');
                     setSearchInput('');
                     setSelectedService(null);
-                  if (typeof onCategoryChange === 'function') onCategoryChange(main);
-                  setPendingSubCategory(sub || null);
-                }}
-                isOpen={openDropdown === "categoryDropdown"}
-                setIsOpen={setOpenDropdown}
-                getDisplayText={(val) => {
-                  const match = Array.isArray(allSubCategories) 
-                    ? allSubCategories.find(g => val.startsWith(g.main))
-                    : null;
-                  if (!match) return "Select Category";
-                  const [main, sub] = val.split('||');
-                  return `${main} - ${sub || ''}`;
-                }}
-              />
-            ) : (
-              <CustomDropdown
-                id="categoryDropdown"
-                value={`${selectedCategory}||${selectedSubCategory || ''}`}
-                options={subCategories.map((subcat) => ({
-                  value: `${selectedCategory}||${subcat}`,
-                  label: subcat,
-                }))}
-                onChange={(val) => {
-                  const [cat, subcat] = val.split('||');
-                  if (subcat) {
+                    if (typeof onCategoryChange === 'function') onCategoryChange(main);
+                    setPendingSubCategory(sub || null);
+                  }}
+                  isOpen={openDropdown === 'categoryDropdown'}
+                  getDisplayText={(val) => {
+                    const match = Array.isArray(allSubCategories) ? allSubCategories.find((group) => val.startsWith(group.main)) : null;
+                    if (!match) return 'Select Category';
+                    const [main, sub] = val.split('||');
+                    return `${main} - ${sub || ''}`;
+                  }}
+                />
+              ) : (
+                <CustomDropdown
+                  id="categoryDropdown"
+                  value={`${selectedCategory}||${selectedSubCategory || ''}`}
+                  options={subCategories.map((subcat) => ({ value: `${selectedCategory}||${subcat}`, label: subcat }))}
+                  onChange={(val) => {
+                    const [, subcat] = val.split('||');
+                    if (subcat) {
                       setSearchInput('');
                       setSelectedService(null);
-                    handleSelectSubCategory(subcat);
-                  }
-                }}
-                isOpen={openDropdown === "categoryDropdown"}
-                setIsOpen={setOpenDropdown}
-                getDisplayText={(val) => {
-                  const [cat, sub] = val.split('||');
-                  return sub || selectedCategory;
-                }}
-              />
-            )}
-          </div>
-
-          {/* Service Dropdown */}
-          <div>
-            {visibleServices.length > 0 ? (
-              <CustomDropdown
-                id="serviceDropdown"
-                label="Service"
-                value={String(selectedService?.serviceId || "")}
-                options={visibleServices.map((service) => ({
-                  value: String(service.serviceId),
-                  label: getServiceLabel(service),
-                }))}
-                onChange={(val) => {
-                  const service = visibleServices.find(
-                    (s) => String(s.serviceId) === val
-                  );
-                  if (service) setSelectedService(service);
-                }}
-                isOpen={openDropdown === "serviceDropdown"}
-                setIsOpen={setOpenDropdown}
-                getDisplayText={(val) => {
-                  if (!val || val === "") return "-- Select Service --";
-                  const service = visibleServices.find(
-                    (s) => String(s.serviceId) === String(val)
-                  );
-                  if (!service) return "-- Select Service --";
-                  return getServiceLabel(service);
-                }}
-              />
-            ) : (
-              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-500 text-center">
-                {searchInput.trim() ? 'No services match your search' : 'No services available'}
-              </div>
-            )}
-          </div>
-
-          {/* Link */}
-          <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Link</label>
-            <input
-              type="text"
-              value={link}
-              onChange={(e) => {
-                setLink(e.target.value);
-                setLastError(null);
-              }}
-              placeholder=""
-              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-            />
-          </div>
-
-          {/* Quantity */}
-          <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Quantity</label>
-            <input
-              type="number"
-              value={quantity}
-              onChange={(e) => {
-                setQuantity(e.target.value);
-                setLastError(null);
-              }}
-              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-            />
-            <p className="mt-0.5 md:mt-1 text-xs text-slate-500">
-              Min: {selectedService?.minQuantity.toLocaleString()} – Max: {selectedService?.maxQuantity.toLocaleString()}
-            </p>
-          </div>
-
-          {/* Average Time */}
-          <div>
-            <label className="mb-1 md:mb-1.5 flex items-center gap-1.5 text-xs md:text-sm font-bold text-slate-800">
-              Average time
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-800 text-[10px] text-white font-bold cursor-help">i</span>
-            </label>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 md:px-3 py-2 md:py-2.5 text-xs md:text-sm text-slate-700">
-              {serviceInfo?.averageTime}
-            </div>
-          </div>
-
-          {/* Recent Completed Time */}
-          <div>
-            <label className="mb-1.5 md:mb-2 block text-xs md:text-sm font-bold text-slate-800">Recent Completed Time</label>
-            <div className="flex flex-wrap gap-1.5 md:gap-2">
-              {serviceInfo?.recentTimes.map((t, i) => (
-                <span
-                  key={i}
-                  className="rounded-full bg-blue-500 px-2 md:px-3 py-1 text-[11px] md:text-xs font-semibold text-white"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Charge */}
-          <div>
-            <label className="mb-1 md:mb-1.5 block text-xs md:text-sm font-bold text-slate-800">Charge</label>
-            <div className="rounded-md border border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 px-3 md:px-4 py-3 md:py-3.5 text-sm md:text-base font-bold text-slate-900 min-h-[50px] flex items-center">
-              {charge ? (
-                <span className="text-base md:text-lg font-bold">{charge}</span>
-              ) : (
-                <span className="text-slate-400">Enter quantity to calculate</span>
+                      handleSelectSubCategory(subcat);
+                    }
+                  }}
+                  isOpen={openDropdown === 'categoryDropdown'}
+                  getDisplayText={(val) => {
+                    const [, sub] = val.split('||');
+                    return sub || selectedCategory;
+                  }}
+                />
               )}
             </div>
-          </div>
 
-          {/* Submit */}
-          <button 
-            onClick={handleSubmitOrder}
-            disabled={submitting}
-            className="w-full rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 py-2.5 md:py-3 text-xs md:text-sm font-bold text-white transition hover:from-violet-500 hover:to-fuchsia-500 active:scale-[0.98] disabled:opacity-50 shadow-md hover:shadow-lg"
-          >
-            {submitting ? "Processing..." : "🛒 Submit Order"}
-          </button>
+            <div>
+              {visibleServices.length > 0 ? (
+                <CustomDropdown
+                  id="serviceDropdown"
+                  label="Service"
+                  value={String(selectedService?.serviceId || '')}
+                  options={visibleServices.map((service) => ({ value: String(service.serviceId), label: getServiceLabel(service, formatCurrency, currency) }))}
+                  onChange={(val) => {
+                    const service = visibleServices.find((item) => String(item.serviceId) === val);
+                    if (service) setSelectedService(service);
+                  }}
+                  isOpen={openDropdown === 'serviceDropdown'}
+                  getDisplayText={(val) => {
+                    if (!val) return '-- Select Service --';
+                    const service = visibleServices.find((item) => String(item.serviceId) === String(val));
+                    return service ? getServiceLabel(service, formatCurrency, currency) : '-- Select Service --';
+                  }}
+                />
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-center text-xs text-slate-500">
+                  {searchInput.trim() ? 'No services match your search' : 'No services available'}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-800 md:mb-1.5 md:text-sm">Link</label>
+              <input type="text" value={link} onChange={(e) => { setLink(e.target.value); setLastError(null); }} className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100 md:px-3 md:py-2.5 md:text-sm" />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-800 md:mb-1.5 md:text-sm">Quantity</label>
+              <input type="number" value={quantity} onChange={(e) => { setQuantity(e.target.value); setLastError(null); }} className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100 md:px-3 md:py-2.5 md:text-sm" />
+              <p className="mt-0.5 text-xs text-slate-500 md:mt-1">Min: {selectedService?.minQuantity ? Number(selectedService.minQuantity).toLocaleString() : '—'} – Max: {selectedService?.maxQuantity ? Number(selectedService.maxQuantity).toLocaleString() : '—'}</p>
+            </div>
+
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-bold text-slate-800 md:mb-1.5 md:text-sm">
+                Average time
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-white">i</span>
+              </label>
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700 md:px-3 md:py-2.5 md:text-sm">{serviceInfo?.averageTime || '—'}</div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-800 md:mb-2 md:text-sm">Recent Completed Time</label>
+              <div className="flex flex-wrap gap-1.5 md:gap-2">
+                {selectedService ? [
+                  `${selectedService.maxQuantity || 'N/A'} = ${serviceInfo?.averageTime || '—'}`,
+                  `${selectedService.minQuantity || 'N/A'} = ${serviceInfo?.start || '—'}`,
+                ].map((item, index) => (
+                  <span key={index} className="rounded-full bg-blue-500 px-2 py-1 text-[11px] font-semibold text-white md:px-3 md:text-xs">{item}</span>
+                )) : null}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-800 md:mb-1.5 md:text-sm">Charge</label>
+              <div className="flex min-h-12.5 items-center rounded-md border border-slate-200 bg-linear-to-br from-slate-50 to-slate-100 px-3 py-3 text-sm font-bold text-slate-900 md:px-4 md:py-3.5 md:text-base">
+                {charge ? <span className="text-base font-bold md:text-lg">{charge}</span> : <span className="text-slate-400">Enter quantity to calculate</span>}
+              </div>
+            </div>
+
+            <button type="button" onClick={handleSubmitOrder} disabled={submitting} className="w-full rounded-md bg-linear-to-r from-violet-600 to-fuchsia-600 py-2.5 text-xs font-bold text-white shadow-md transition hover:from-violet-500 hover:to-fuchsia-500 hover:shadow-lg active:scale-[0.98] disabled:opacity-50 md:py-3 md:text-sm">
+              {submitting ? 'Processing...' : '🛒 Submit Order'}
+            </button>
           </div>
+        )}
       </div>
 
-      {/* RIGHT PANEL - Service Details */}
-      {selectedService ? (
-        <div className="rounded-[3px] border border-slate-200/70 bg-white p-0 shadow-sm w-full min-w-0 overflow-hidden flex flex-col">
-          {/* Service Header - Purple Gradient */}
-          <div className="bg-gradient-to-br from-violet-600 via-fuchsia-500 to-rose-500 px-4 md:px-6 py-4 md:py-6 text-white relative">
-            <div className="flex flex-wrap items-start gap-2 md:gap-3">
-              <div className="min-w-0 flex-1">
-                <h3 className="text-sm md:text-xl font-bold leading-tight break-words">
-                  {getServiceLabel(selectedService)}
-                </h3>
+      {activeTab === 'mass' ? (
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-[3px] border border-slate-200/70 bg-white shadow-sm">
+          <div className="bg-white px-4 py-4 md:px-6 md:py-5">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-lg bg-violet-600 text-white shadow-md">
+                <span className="text-base font-bold">i</span>
               </div>
-              <span className="inline-block rounded-full bg-yellow-300 text-slate-900 px-2 md:px-4 py-1 md:py-2 text-xs font-bold flex-shrink-0">
-                # {selectedService.serviceId}
-              </span>
+              <h3 className="text-xl font-extrabold text-slate-900 md:text-2xl">How Mass Order works ?</h3>
+            </div>
+            <div className="mt-4 space-y-2 text-sm leading-7 text-slate-700 md:text-base">
+              <p>You put the service ID followed by | followed by the link followed by | followed by quantity on each line.</p>
+              <p>To get the service ID of a service please check here: <a href="https://smmgen.com/services" target="_blank" rel="noreferrer" className="text-blue-600 underline">https://smmgen.com/services</a></p>
+              <p>Let’s say you want to use the Mass Order to add Instagram Followers to your 3 accounts: abcd, asdf, qwer</p>
+              <p>From the Services List, the service ID for this service “Instagram Followers [100% Real - 30 Days Guarantee- NEW SERVICE” is 3740</p>
+              <p>Let’s say you want to add 1000 followers for each account, the output will be like this:</p>
+              <p>ID|Link|Quantity</p>
+              <p>or in this example:</p>
+              <ul className="list-disc space-y-1 pl-6">
+                <li>3740|abcd|1000</li>
+                <li>3740|asdf|1000</li>
+                <li>3740|qwer|1000</li>
+                <li>3740|eoir|1000</li>
+              </ul>
             </div>
           </div>
-
-          {/* Details Section */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
-            {/* Key Details */}
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 md:p-5 space-y-3">
-              <h4 className="font-bold text-slate-900 text-xs md:text-sm">Description</h4>
-              <div className="space-y-2 text-sm md:text-base text-slate-900">
-                <div>
-                  <span className="font-medium text-slate-700">Link: </span>
-                  <span className="break-words">{link || 'Profile/Post URL'}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-slate-700">Start: </span>
-                  <span>{serviceInfo?.description.start}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-slate-700">Speed: </span>
-                  <span>{serviceInfo?.description.speed}</span>
-                </div>
-                <div>
-                  <span className="font-medium text-slate-700">Refill: </span>
-                  <span>{serviceInfo?.description.refill}</span>
-                </div>
-                {serviceInfo?.description.text && serviceInfo.description.text !== `${selectedService?.name || 'Service'} is provided by the selected API provider.` && (
-                  <div className="pt-2 border-t border-slate-200 text-sm text-slate-700 whitespace-pre-line">
-                    {serviceInfo.description.text}
-                  </div>
-                )}
+        </div>
+      ) : selectedService ? (
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-[3px] border border-slate-200/70 bg-white shadow-sm">
+          <div className="relative bg-linear-to-br from-violet-600 via-fuchsia-500 to-rose-500 px-4 py-4 text-white md:px-6 md:py-6">
+            <div className="flex flex-wrap items-start gap-2 md:gap-3">
+              <div className="min-w-0 flex-1">
+                <h3 className="wrap-break-word text-sm font-bold leading-tight md:text-xl">{getServiceLabel(selectedService, formatCurrency, currency)}</h3>
+              </div>
+              <span className="inline-block shrink-0 rounded-full bg-yellow-300 px-2 py-1 text-xs font-bold text-slate-900 md:px-4 md:py-2"># {selectedService.serviceId}</span>
+            </div>
+          </div>
+          <div className="flex-1 space-y-4 overflow-y-auto p-4 md:p-5">
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 md:p-5">
+              <h4 className="text-xs font-bold text-slate-900 md:text-sm">Description</h4>
+              <div className="space-y-2 text-sm text-slate-900 md:text-base">
+                <div><span className="font-medium text-slate-700">Category: </span><span>{selectedService.category || '—'}</span></div>
+                <div><span className="font-medium text-slate-700">Subcategory: </span><span>{selectedService.subCategory || '—'}</span></div>
+                <div><span className="font-medium text-slate-700">Price: </span><span>{formatCurrency(Number(selectedService.price || 0), currency)} per 1000</span></div>
+                <div><span className="font-medium text-slate-700">Min: </span><span>{selectedService.minQuantity || '—'}</span></div>
+                <div><span className="font-medium text-slate-700">Max: </span><span>{selectedService.maxQuantity || '—'}</span></div>
               </div>
             </div>
-
-            {/* Quality & Important Notes */}
             <div>
-              <h4 className="font-bold text-slate-900 text-xs md:text-sm mb-3">Quality</h4>
-              <p className="text-xs md:text-sm text-slate-700 bg-blue-50 border border-blue-200 rounded-lg p-3 font-semibold">
-                {serviceInfo?.description.quality}
-              </p>
-              <p className="mt-2 text-xs md:text-sm text-slate-700">
-                Location : <span className="font-semibold">{serviceInfo?.description.location}</span> 🌍
-              </p>
-            </div>
-
-            {/* Important Notes */}
-            <div>
-              <h4 className="font-bold text-slate-900 text-xs md:text-sm mb-3">⚠️ Important Notes:</h4>
-              <ul className="space-y-2 text-xs md:text-sm text-slate-700">
-                {(serviceInfo?.notes?.length ? serviceInfo.notes : [
+              <h4 className="mb-3 text-xs font-bold text-slate-900 md:text-sm">⚠️ Important Notes:</h4>
+              <ul className="space-y-2 text-xs text-slate-700 md:text-sm">
+                {[
                   'When the service is experiencing high demand, the starting speed may vary.',
                   'Please avoid placing a second order on the same link until the current order is fully completed in the system.',
                   'If you encounter any issues with the service, kindly reach out to our support team for assistance.',
                   'Do not place orders for private accounts or private links. Orders for private content will not be processed and may not be refunded.',
-                ]).map((note, index) => (
+                ].map((note, index) => (
                   <li key={`${index}-${note}`} className="flex gap-2">
-                    <span className="shrink-0 text-amber-600 font-bold mt-0.5">•</span>
+                    <span className="mt-0.5 shrink-0 font-bold text-amber-600">•</span>
                     <span>{note}</span>
                   </li>
                 ))}
@@ -973,14 +704,10 @@ const DashboardOrderPanel = ({ selectedCategory = "Everything", onCategoryChange
           </div>
         </div>
       ) : (
-        <div className="rounded-[3px] border border-slate-200/70 bg-white p-6 md:p-8 shadow-sm w-full min-w-0 flex items-center justify-center h-64 md:h-full">
-          <div className="text-center">
-            <p className="text-sm md:text-base text-slate-500">👈 Select a service to view details</p>
-          </div>
+        <div className="flex h-64 min-w-0 items-center justify-center rounded-[3px] border border-slate-200/70 bg-white p-6 shadow-sm md:h-full md:p-8">
+          <p className="text-sm text-slate-500 md:text-base">👈 Select a service to view details</p>
         </div>
       )}
     </div>
   );
-};
-
-export default DashboardOrderPanel;
+}

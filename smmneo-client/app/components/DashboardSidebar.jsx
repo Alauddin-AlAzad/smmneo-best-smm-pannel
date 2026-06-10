@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { NavLink } from "react-router";
 import {
   FaShoppingCart,
@@ -24,14 +24,15 @@ import demoAvatar from "../assets/userimage.png"; // add demo avatar image
 import { useAuth } from "./AuthContext.jsx";
 import { useCurrency } from "../context/CurrencyContext.jsx";
 import { getDisplayName } from "../utils/userDisplayName.js";
+import { fetchUserTickets } from "../services/adminDashboardAPI.js";
 
 const topItems = [
   { label: "New order", icon: <FaShoppingCart />, to: "/dashboard" },
   { label: "Mass order", icon: <FaBoxes />, to: "/dashboard" },
-  { label: "Orders", icon: <FaHistory />, to: "/dashboard" },
-  { label: "Services", icon: <FaLayerGroup />, to: "/dashboard" },
+  { label: "Orders", icon: <FaHistory />, to: "/dashboard/orders" },
+  { label: "Services", icon: <FaLayerGroup />, to: "/dashboard/services" },
   { label: "Add Funds", icon: <FaWallet />, to: "/dashboard/add-fund" },
-  { label: "Support Box", icon: <FaInbox />, to: "/dashboard" },
+  { label: "Support Box", icon: <FaInbox />, to: "/dashboard/tickets" },
   { label: "Recently Completed", icon: <FaChartBar />, to: "/dashboard" },
 ];
 
@@ -56,14 +57,53 @@ const moreItems = [
 const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [expandedItem, setExpandedItem] = useState(null);
+  const [supportCount, setSupportCount] = useState(0);
   const { user, balanceUSD } = useAuth();
   const { currency, formatCurrency } = useCurrency();
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSupportCount = async () => {
+      if (!user?.email) {
+        if (mounted) setSupportCount(0);
+        return;
+      }
+
+      try {
+        const tickets = await fetchUserTickets(user.email, 100, 'all');
+        if (!mounted) return;
+        setSupportCount(
+          Array.isArray(tickets)
+            ? tickets.reduce((sum, ticket) => sum + Number(ticket.unreadForUser || 0), 0)
+            : 0,
+        );
+      } catch {
+        if (mounted) setSupportCount(0);
+      }
+    };
+
+    loadSupportCount();
+
+    const handleRefresh = () => {
+      loadSupportCount();
+    };
+
+    window.addEventListener('support-tickets-updated', handleRefresh);
+    const intervalId = window.setInterval(loadSupportCount, 15000);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('support-tickets-updated', handleRefresh);
+      window.clearInterval(intervalId);
+    };
+  }, [user?.email]);
 
   return (
     <>
       {/* Sidebar */}
       <div
-        className={`fixed top-0 left-0 z-50 h-screen w-[260px] overflow-y-auto text-white transition-all duration-300 ${
+        className={`fixed top-0 left-0 z-50 h-screen w-65 overflow-y-auto text-white transition-all duration-300 ${
           sidebarOpen
             ? "translate-x-0 opacity-100"
             : "-translate-x-full opacity-0"
@@ -82,7 +122,7 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
           <div className="px-3 pt-3">
             <div className="flex items-center justify-between gap-1">
               <div className="flex items-center gap-1">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-700 text-2xl font-black">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-linear-to-br from-violet-500 to-indigo-700 text-2xl font-black">
                   S
                 </div>
 
@@ -94,7 +134,7 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
               {/* Close Button - 10% overlap */}
               <button
                 onClick={() => setSidebarOpen(false)}
-                className="absolute -right-[12px] top-3 flex h-9 w-9 items-center justify-center rounded border border-white/30 bg-white/10 text-white transition hover:bg-white/20 lg:hidden"
+                className="absolute -right-3 top-3 flex h-9 w-9 items-center justify-center rounded border border-white/30 bg-white/10 text-white transition hover:bg-white/20 lg:hidden"
               >
                 <FaTimes size={18} />
               </button>
@@ -135,7 +175,7 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
                   className={({ isActive }) =>
                     `flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-200 ${
                           item.label === "Add Funds"
-                        ? "bg-gradient-to-r from-violet-600 to-purple-500 text-white"
+                        ? "bg-linear-to-r from-violet-600 to-purple-500 text-white"
                         : isActive
                         ? "bg-white/10"
                         : "hover:bg-white/10"
@@ -147,7 +187,7 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
 
                   {item.label === "Support Box" && (
                     <span className="ml-auto rounded-md bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      1
+                      {supportCount}
                     </span>
                   )}
                 </NavLink>
@@ -171,7 +211,7 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
               <div
                 className={`overflow-hidden transition-all duration-300 ${
                   moreMenuOpen
-                    ? "mt-1 max-h-[500px] opacity-100"
+                    ? "mt-1 max-h-125 opacity-100"
                     : "max-h-0 opacity-0"
                 }`}
               >
@@ -205,7 +245,7 @@ const DashboardSidebar = ({ sidebarOpen, setSidebarOpen }) => {
                         <div
                           className={`ml-4 overflow-hidden transition-all duration-300 ${
                             expandedItem === index
-                              ? "mt-0.5 max-h-[300px] opacity-100"
+                              ? "mt-0.5 max-h-75 opacity-100"
                               : "max-h-0 opacity-0"
                           }`}
                         >

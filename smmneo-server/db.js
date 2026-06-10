@@ -22,7 +22,22 @@ let db = null;
 
 async function connectDB() {
   if (db) return db;
-  client = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+  
+  // Configuration to work around Node.js DNS issues
+  const clientOptions = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 10000,
+    connectTimeoutMS: 10000,
+    retryWrites: true,
+  };
+  
+  // If using SRV, add DNS settings
+  if (MONGO_URI.includes('mongodb+srv')) {
+    clientOptions.directConnection = false; // Allow SRV discovery
+  }
+  
+  client = new MongoClient(MONGO_URI, clientOptions);
   await client.connect();
   db = client.db(DB_NAME);
   console.log('✅ Connected to MongoDB', DB_NAME);

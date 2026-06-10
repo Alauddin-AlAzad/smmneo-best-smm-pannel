@@ -1,5 +1,5 @@
 import { Navigate } from "react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../components/AuthContext.jsx";
 import DashboardTopbar from "../components/DashboardTopbar.jsx";
 import DashboardSidebar from "../components/DashboardSidebar.jsx";
@@ -10,8 +10,12 @@ import DashboardServices from "../components/DashboardServices.jsx";
 
 const Dashboard = () => {
   const { user, loading } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("Everything");
+
+  useEffect(() => {
+    setSidebarOpen(window.innerWidth >= 1024);
+  }, []);
 
   if (loading) {
     return (

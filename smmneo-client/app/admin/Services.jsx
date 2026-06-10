@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import DashboardLayout from '../components/admin/layout/DashboardLayout.jsx';
 import useProviderServices from '../hooks/useProviderServices.js';
 import LoadingSpinner from '../components/admin/common/LoadingSpinner.jsx';
@@ -6,6 +6,7 @@ import ErrorState from '../components/admin/common/ErrorState.jsx';
 import toast from 'react-hot-toast';
 
 const AdminServices = () => {
+  const PAGE_SIZE = 50;
   const [providerSettings, setProviderSettings] = useState(null);
   const [providers, setProviders] = useState([]);
   const [selectedProviderId, setSelectedProviderId] = useState('');
@@ -14,17 +15,60 @@ const AdminServices = () => {
   const [selectAllAcrossApi, setSelectAllAcrossApi] = useState(false);
   const [deselectedServices, setDeselectedServices] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [refillOnly, setRefillOnly] = useState(false);
+  const [cancelOnly, setCancelOnly] = useState(false);
   const [activeTab, setActiveTab] = useState('services');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [allLoadedServices, setAllLoadedServices] = useState([]);
+  const sentinelRef = useRef(null);
 
   // Fetch services from global provider settings via proxy
   const { services, loading, error, pagination, fetchServices } = useProviderServices(
     null,  // Don't pass credentials - use backend proxy instead
     null
   );
+
+  const currentQuery = useMemo(() => ({
+    admin: true,
+    search: appliedSearch.trim() || undefined,
+    refill: refillOnly || undefined,
+    cancel: cancelOnly || undefined,
+  }), [appliedSearch, refillOnly, cancelOnly]);
+
+  const resetSelectionState = useCallback(() => {
+    setSelectAllAcrossApi(false);
+    setSelectedServices(new Set());
+    setDeselectedServices(new Set());
+  }, []);
+
+  const refreshServices = useCallback(async (page = 1) => {
+    setCurrentPage(page);
+    setAllLoadedServices([]);
+    resetSelectionState();
+    await fetchServices(page, PAGE_SIZE, currentQuery);
+  }, [fetchServices, currentQuery, resetSelectionState]);
+
+  const handleSearch = useCallback(() => {
+    setAppliedSearch(searchTerm.trim());
+  }, [searchTerm]);
+
+  const handleSearchKeyDown = useCallback((event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      setAppliedSearch(searchTerm.trim());
+    }
+  }, [searchTerm]);
+
+  const toggleRefillOnly = useCallback(() => {
+    setRefillOnly((value) => !value);
+  }, []);
+
+  const toggleCancelOnly = useCallback(() => {
+    setCancelOnly((value) => !value);
+  }, []);
 
   const fetchProviderSettings = async () => {
     try {
@@ -96,7 +140,7 @@ const AdminServices = () => {
         setAllLoadedServices([]);
 
         if (shouldForceReload) {
-          await fetchServices(1, 50, { admin: true });
+          await fetchServices(1, PAGE_SIZE, currentQuery);
         }
 
         if (!silent) {
@@ -135,15 +179,39 @@ const AdminServices = () => {
   };
 
   // Load more services to current loaded set
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
+    if (loading || !pagination.hasMore) {
+      return;
+    }
+
     const nextPage = currentPage + 1;
     try {
-      await fetchServices(nextPage, pagination.limit, { admin: true });
+      await fetchServices(nextPage, PAGE_SIZE, currentQuery);
       setCurrentPage(nextPage);
     } catch (err) {
       toast.error('Failed to load more services');
     }
-  };
+  }, [currentPage, fetchServices, loading, pagination.hasMore, currentQuery]);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+
+    if (!node || !pagination.hasMore || !allLoadedServices.length) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !loading) {
+          handleLoadMore();
+        }
+      },
+      { root: null, rootMargin: '200px', threshold: 0 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [allLoadedServices.length, handleLoadMore, loading, pagination.hasMore]);
 
   // Load global provider settings from backend
   useEffect(() => {
@@ -192,17 +260,11 @@ const AdminServices = () => {
     }
   }, [providers, providerSettings, selectedProviderId, loadingSettings]);
 
-  // Fetch services page 1 when provider settings are loaded
   useEffect(() => {
     if (providerSettings?.apiUrl) {
-      setCurrentPage(1);
-      setAllLoadedServices([]);
-      setSelectAllAcrossApi(false);
-      setSelectedServices(new Set());
-      setDeselectedServices(new Set());
-      fetchServices(1, 50, { admin: true });
+      refreshServices(1);
     }
-  }, [providerSettings?.apiUrl, fetchServices]);
+  }, [providerSettings?.apiUrl, appliedSearch, refillOnly, cancelOnly, refreshServices]);
 
   // Accumulate loaded services
   useEffect(() => {
@@ -216,20 +278,10 @@ const AdminServices = () => {
     }
   }, [services]);
 
-  // Filter services by search term
-  const filteredServices = useMemo(() => {
-    if (!searchTerm) return allLoadedServices;
-    const term = searchTerm.toLowerCase();
-    return allLoadedServices.filter(
-      (s) =>
-        s.name?.toLowerCase().includes(term) ||
-        s.service?.toString().toLowerCase().includes(term) ||
-        s.category?.toLowerCase().includes(term)
-    );
-  }, [allLoadedServices, searchTerm]);
+  const visibleServices = useMemo(() => allLoadedServices, [allLoadedServices]);
 
   const groupedServices = useMemo(() => {
-    return filteredServices.reduce((acc, service) => {
+    return visibleServices.reduce((acc, service) => {
       const category = service.category || 'Uncategorized';
       if (!acc[category]) {
         acc[category] = [];
@@ -237,7 +289,7 @@ const AdminServices = () => {
       acc[category].push(service);
       return acc;
     }, {});
-  }, [filteredServices]);
+  }, [visibleServices]);
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -245,14 +297,19 @@ const AdminServices = () => {
       ? Math.max(0, (pagination.total || 0) - deselectedServices.size)
       : selectedServices.size;
 
+    const loadedRefillable = allLoadedServices.filter((s) => s.refill).length;
+    const loadedCancellable = allLoadedServices.filter((s) => s.cancel).length;
+
     return {
       total: pagination.total,
       loaded: allLoadedServices.length,
-      refillable: allLoadedServices.filter((s) => s.refill).length,
-      cancellable: allLoadedServices.filter((s) => s.cancel).length,
+      refillable: pagination.refillableTotal ?? loadedRefillable,
+      cancellable: pagination.cancellableTotal ?? loadedCancellable,
+      refillableLoaded: loadedRefillable,
+      cancellableLoaded: loadedCancellable,
       selected: selectedCount,
     };
-  }, [allLoadedServices, selectedServices.size, deselectedServices.size, selectAllAcrossApi, pagination.total]);
+  }, [allLoadedServices, selectedServices.size, deselectedServices.size, selectAllAcrossApi, pagination.total, pagination.refillableTotal, pagination.cancellableTotal]);
 
   const isServiceSelected = (serviceId) => {
     const key = String(serviceId);
@@ -322,7 +379,7 @@ const AdminServices = () => {
               onClick={() => setActiveTab(tab.id)}
               className={`px-6 py-4 text-sm font-semibold transition-all whitespace-nowrap flex items-center gap-2 ${
                 activeTab === tab.id
-                  ? 'text-violet-600 border-b-2 border-violet-600 -mb-[2px]'
+                  ? 'text-violet-600 border-b-2 border-violet-600 -mb-0.5'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -396,7 +453,7 @@ const AdminServices = () => {
                 />
               </div>
 
-              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 md:min-w-[280px] flex flex-col justify-center">
+              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 md:min-w-70 flex flex-col justify-center">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">How it works</p>
                 <p className="text-sm text-slate-700">
                   Selling price = provider price + {profitPercentage || 0}% margin
@@ -414,7 +471,7 @@ const AdminServices = () => {
 
           {/* Display Provider Info */}
           {providerSettings && (
-            <div className="bg-gradient-to-r from-violet-50 to-violet-100 rounded-xl border border-violet-200 p-6 shadow-sm">
+            <div className="bg-linear-to-r from-violet-50 to-violet-100 rounded-xl border border-violet-200 p-6 shadow-sm">
               <h3 className="text-sm font-bold text-violet-900 mb-2">🔗 Active Provider</h3>
               <p className="text-violet-700">{providerSettings.apiUrl}</p>
               <p className="mt-2 text-sm text-violet-800">
@@ -423,38 +480,87 @@ const AdminServices = () => {
             </div>
           )}
 
-          {/* Search */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-            <label className="block text-sm font-bold text-slate-900 mb-3">🔍 Search Services</label>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by name, ID, or category..."
-              className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-lg focus:border-violet-500 outline-none"
-            />
+          {/* Search + Filters */}
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-900 mb-3">🔍 Search Services</label>
+              <div className="flex flex-col md:flex-row gap-3">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search by name, ID, category, or description..."
+                  className="flex-1 px-4 py-2.5 border-2 border-slate-200 rounded-lg focus:border-violet-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSearch}
+                  className="px-5 py-2.5 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700 transition"
+                >
+                  Search
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={toggleRefillOnly}
+                className={`px-4 py-2 rounded-lg border font-semibold transition ${
+                  refillOnly
+                    ? 'bg-green-600 text-white border-green-600'
+                    : 'bg-white text-slate-700 border-slate-300 hover:border-green-500'
+                }`}
+              >
+                {refillOnly ? '✓ Refillable only' : 'Refillable'}
+              </button>
+              <button
+                type="button"
+                onClick={toggleCancelOnly}
+                className={`px-4 py-2 rounded-lg border font-semibold transition ${
+                  cancelOnly
+                    ? 'bg-orange-600 text-white border-orange-600'
+                    : 'bg-white text-slate-700 border-slate-300 hover:border-orange-500'
+                }`}
+              >
+                {cancelOnly ? '✓ Cancellable only' : 'Cancellable'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setAppliedSearch('');
+                  setRefillOnly(false);
+                  setCancelOnly(false);
+                }}
+                className="px-4 py-2 rounded-lg border font-semibold bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 transition"
+              >
+                Clear Filters
+              </button>
+            </div>
           </div>
 
           {/* Stats Cards */}
           {!loading && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border-2 border-blue-200 p-4">
+              <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-lg border-2 border-blue-200 p-4">
                 <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Total Available</p>
                 <p className="text-3xl font-bold text-blue-900">{stats.total.toLocaleString()}</p>
                 <p className="text-xs text-blue-700 mt-1">Loaded: {stats.loaded}</p>
               </div>
 
-              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg border-2 border-green-200 p-4">
+              <div className="bg-linear-to-br from-green-50 to-green-100 rounded-lg border-2 border-green-200 p-4">
                 <p className="text-xs font-bold text-green-600 uppercase tracking-wider mb-2">Refillable</p>
                 <p className="text-3xl font-bold text-green-900">{stats.refillable}</p>
               </div>
 
-              <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border-2 border-orange-200 p-4">
+              <div className="bg-linear-to-br from-orange-50 to-orange-100 rounded-lg border-2 border-orange-200 p-4">
                 <p className="text-xs font-bold text-orange-600 uppercase tracking-wider mb-2">Cancellable</p>
                 <p className="text-3xl font-bold text-orange-900">{stats.cancellable}</p>
               </div>
 
-              <div className="bg-gradient-to-br from-violet-50 to-violet-100 rounded-lg border-2 border-violet-200 p-4">
+              <div className="bg-linear-to-br from-violet-50 to-violet-100 rounded-lg border-2 border-violet-200 p-4">
                 <p className="text-xs font-bold text-violet-600 uppercase tracking-wider mb-2">Selected</p>
                 <p className="text-3xl font-bold text-violet-900">{stats.selected}</p>
               </div>
@@ -465,7 +571,7 @@ const AdminServices = () => {
           {error && (
             <ErrorState
               error={error}
-              onRetry={() => fetchServices(1, 50, { admin: true })}
+              onRetry={() => refreshServices(1)}
             />
           )}
 
@@ -491,10 +597,10 @@ const AdminServices = () => {
                 </label>
               </div>
 
-              {filteredServices.length > 0 ? (
+              {visibleServices.length > 0 ? (
                 Object.entries(groupedServices).map(([category, categoryServices]) => (
                   <div key={category} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                    <div className="bg-gradient-to-r from-slate-900 to-slate-800 px-6 py-4">
+                    <div className="bg-linear-to-r from-slate-900 to-slate-800 px-6 py-4">
                       <h2 className="text-lg font-bold text-white flex items-center justify-between">
                         <span>📁 {category}</span>
                         <span className="bg-violet-500 text-white text-xs font-bold px-3 py-1 rounded-full">
@@ -545,7 +651,7 @@ const AdminServices = () => {
                                   />
                                 </td>
                                 <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{serviceId}</td>
-                                <td className="px-4 py-3 text-slate-900 min-w-[280px]">{service.name}</td>
+                                <td className="px-4 py-3 text-slate-900 min-w-70">{service.name}</td>
                                 <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{service.type || '-'}</td>
                                 <td className="px-4 py-3 text-green-700 font-semibold whitespace-nowrap">${(parseFloat(service.providerPrice ?? service.rate ?? service.price) || 0).toFixed(4)}</td>
                                 <td className="px-4 py-3 text-green-700 font-semibold whitespace-nowrap">${(parseFloat(service.sellingPrice ?? service.price ?? 0) || 0).toFixed(4)}</td>
@@ -579,25 +685,20 @@ const AdminServices = () => {
                 </div>
               )}
 
-              {/* Pagination Controls */}
-              {pagination.hasMore && !loading && allLoadedServices.length > 0 && (
-                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm text-center">
-                  <p className="text-sm text-slate-600 mb-4">
+              <div ref={sentinelRef} className="h-10" />
+
+              {pagination.hasMore && allLoadedServices.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 p-4 text-center">
+                  <p className="text-sm text-slate-600">
                     Loaded <span className="font-bold">{stats.loaded}</span> of{' '}
                     <span className="font-bold">{stats.total}</span> services
                   </p>
-                  <button
-                    onClick={handleLoadMore}
-                    disabled={loading}
-                    className="px-6 py-2.5 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? '⏳ Loading...' : '📥 Load More Services'}
-                  </button>
+                  {loading && <p className="mt-2 text-xs text-slate-500">Loading more…</p>}
                 </div>
               )}
 
               {!pagination.hasMore && allLoadedServices.length > 0 && (
-                <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-xl border border-green-200 p-4 text-center">
+                <div className="bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200 p-4 text-center">
                   <p className="text-sm font-semibold text-green-700">✅ All {stats.total} services loaded</p>
                 </div>
               )}

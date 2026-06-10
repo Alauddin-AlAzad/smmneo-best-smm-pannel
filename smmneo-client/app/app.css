@@ -59,3 +59,12 @@ body {
 .dashboard-main {
   transition: width 0.3s ease-in-out, margin 0.3s ease-in-out;
 }
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

@@ -1,6 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
 import ProviderAPI from '../services/providerAPI.js';
 
+function appendBooleanParam(params, key, value) {
+  if (value === true) {
+    params.append(key, 'true');
+  } else if (value === false) {
+    params.append(key, 'false');
+  }
+}
+
 export function useProviderServices(apiUrl, apiKey) {
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -47,8 +55,19 @@ export function useProviderServices(apiUrl, apiKey) {
         }
       } else {
         // Backend proxy with server-side pagination
-        const adminQuery = options.admin ? '&admin=true' : '';
-        const resp = await fetch(`http://localhost:3000/api/provider/services?page=${page}&limit=${limit}${adminQuery}`);
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(limit),
+        });
+
+        if (options.admin) params.append('admin', 'true');
+        if (options.search) params.append('search', options.search);
+        if (options.category) params.append('category', options.category);
+        if (options.subcategory) params.append('subcategory', options.subcategory);
+        appendBooleanParam(params, 'refill', options.refill);
+        appendBooleanParam(params, 'cancel', options.cancel);
+
+        const resp = await fetch(`http://localhost:3000/api/provider/services?${params.toString()}`);
         if (!resp.ok) throw new Error(`Provider proxy failed: ${resp.statusText}`);
         const json = await resp.json();
         

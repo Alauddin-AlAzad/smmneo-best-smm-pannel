@@ -8,7 +8,7 @@ import {
   onAuthStateChanged,
   updateProfile,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase_init.js";
 import toast from "react-hot-toast";
 
@@ -24,7 +24,13 @@ export const AuthProvider = ({ children }) => {
   const [balanceUSD, setBalanceUSD] = useState(0);
 
   useEffect(() => {
+    let unsubscribeUserDoc = null;
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (unsubscribeUserDoc) {
+        unsubscribeUserDoc();
+        unsubscribeUserDoc = null;
+      }
       setUser(user);
       // load user balance from Firestore and MongoDB
       (async () => {
@@ -39,6 +45,34 @@ export const AuthProvider = ({ children }) => {
               await setDoc(userRef, { balanceUSD: 0, createdAt: new Date() });
               setBalanceUSD(0);
             }
+
+            let prevBalance = null;
+            unsubscribeUserDoc = onSnapshot(userRef, (snapshot) => {
+              if (snapshot.exists()) {
+                const data = snapshot.data();
+                const updatedBalance = Number(data.balanceUSD || 0);
+
+                // show toast when balance increases/decreases
+                if (prevBalance !== null && updatedBalance !== prevBalance) {
+                  const delta = updatedBalance - prevBalance;
+                  if (delta > 0) {
+                    toast.success(`Balance updated: +$${delta.toFixed(2)}`);
+                  } else if (delta < 0) {
+                    toast.error(`Balance changed: $${delta.toFixed(2)}`);
+                  }
+                }
+
+                prevBalance = updatedBalance;
+
+                setBalanceUSD(updatedBalance);
+                setUser((prevUser) => prevUser ? {
+                  ...prevUser,
+                  balanceUSD: updatedBalance,
+                } : prevUser);
+              }
+            }, (snapshotError) => {
+              console.error('User doc snapshot error:', snapshotError);
+            });
 
             // Fetch MongoDB user data and add to user object
             try {
@@ -88,7 +122,12 @@ export const AuthProvider = ({ children }) => {
       })();
     });
 
-    return unsubscribe;
+    return () => {
+      if (unsubscribeUserDoc) {
+        unsubscribeUserDoc();
+      }
+      unsubscribe();
+    };
   }, []);
 
   const loginWithEmail = async (email, password) => {
@@ -200,8 +239,9 @@ export const AuthProvider = ({ children }) => {
       try {
         const email = result.user.email;
         const displayName = result.user.displayName || email;
-        // Use full email as username (with special chars replaced), not just part before @
-        const username = email.replace(/[^a-z0-9._-]/gi, '_').toLowerCase();
+        const username = (displayName && displayName !== email)
+          ? displayName.replace(/\s+/g, '_').toLowerCase()
+          : email.split('@')[0].toLowerCase();
 
         const response = await fetch('http://localhost:3000/api/users/sync-firebase', {
           method: 'POST',
@@ -298,6 +338,47 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
   };
+
+  const syncFirestoreBalance = async () => {
+    try {
+      if (!auth.currentUser?.email) return;
+      const response = await fetch(`http://localhost:3000/api/admin/users`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data.success || !Array.isArray(data.data)) return;
+      const currentUser = data.data.find(u => u.email?.toLowerCase() === auth.currentUser.email.toLowerCase());
+      if (!currentUser) return;
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      const newBalance = parseFloat(currentUser.balanceUSD || 0);
+      const snap = await getDoc(userRef);
+      const currentBalance = snap.exists() ? Number(snap.data().balanceUSD || 0) : 0;
+      if (newBalance !== currentBalance) {
+        await setDoc(userRef, { balanceUSD: newBalance }, { merge: true });
+        setBalanceUSD(newBalance);
+        setUser(prev => prev ? { ...prev, balanceUSD: newBalance } : null);
+      }
+    } catch (syncError) {
+      console.error('Error syncing Firestore balance from backend:', syncError);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const interval = setInterval(() => {
+      refreshUserProfile().catch((err) => {
+        console.error('Auto refresh user profile failed:', err);
+      });
+      syncFirestoreBalance().catch((err) => {
+        console.error('Auto sync Firestore balance failed:', err);
+      });
+    }, 20000);
+
+    return () => clearInterval(interval);
+  }, [user]);
 
   const addFunds = async (amount, currency = 'USD') => {
     try {

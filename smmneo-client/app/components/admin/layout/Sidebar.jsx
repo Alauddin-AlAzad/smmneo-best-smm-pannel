@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router';
 import { sidebarMenuItems } from '../../../data/adminDashboardData.js';
-import { fetchAdminSettings } from '../../../services/adminDashboardAPI.js';
+import { fetchAdminSettings, fetchAdminTickets } from '../../../services/adminDashboardAPI.js';
 import { getAdminDisplayName, getAdminSubtitle } from '../../../utils/adminProfile.js';
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
   const location = useLocation();
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [settings, setSettings] = useState(null);
+  const [pendingTicketsCount, setPendingTicketsCount] = useState(0);
 
   const isActive = (path) => {
     return location.pathname === path;
@@ -41,6 +42,39 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const loadTicketsCount = async () => {
+      try {
+        const tickets = await fetchAdminTickets(100);
+        if (!mounted) return;
+        setPendingTicketsCount(
+          Array.isArray(tickets)
+            ? tickets.reduce((sum, ticket) => sum + Number(ticket.unreadForAdmin || 0), 0)
+            : 0,
+        );
+      } catch {
+        if (mounted) setPendingTicketsCount(0);
+      }
+    };
+
+    loadTicketsCount();
+
+    const handleRefresh = () => {
+      loadTicketsCount();
+    };
+
+    window.addEventListener('support-tickets-updated', handleRefresh);
+    const intervalId = window.setInterval(loadTicketsCount, 15000);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('support-tickets-updated', handleRefresh);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const adminName = getAdminDisplayName(settings);
   const adminSubtitle = getAdminSubtitle(settings);
 
@@ -50,6 +84,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
 
   const MenuItem = ({ item }) => {
     const active = isActive(item.path);
+    const showTicketBadge = item.label === 'Tickets';
     return (
       <Link
         to={item.path}
@@ -62,6 +97,11 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       >
         <span className="text-sm">{item.icon}</span>
         <span>{item.label}</span>
+        {showTicketBadge && (
+          <span className="ml-auto rounded-md bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {pendingTicketsCount}
+          </span>
+        )}
       </Link>
     );
   };

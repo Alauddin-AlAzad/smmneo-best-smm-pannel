@@ -23,10 +23,22 @@ export const CurrencyProvider = ({ children }) => {
     return Number(amountUSD) || 0;
   };
 
+  const formatUsd = (value) => {
+    const amount = Number(value) || 0;
+    const absAmount = Math.abs(amount);
+    if (absAmount >= 0.01) {
+      return amount.toFixed(2);
+    }
+    if (absAmount > 0) {
+      return amount.toFixed(8).replace(/\.0+$|([0-9]*\.[0-9]*?)0+$/, '$1');
+    }
+    return amount.toFixed(2);
+  };
+
   const formatCurrency = (amountUSD, curr) => {
     const val = convertToCurrency(amountUSD, curr);
-    if (curr === 'BDT') return `BDT ${val.toFixed(2)}`;
-    return `$${val.toFixed(4)}`;
+    if (curr === 'BDT') return `৳${val.toFixed(2)}`;
+    return `$${formatUsd(val)}`;
   };
 
   const value = useMemo(() => ({ currency, setCurrency, BDT_PER_USD, convertToCurrency, formatCurrency }), [currency]);
