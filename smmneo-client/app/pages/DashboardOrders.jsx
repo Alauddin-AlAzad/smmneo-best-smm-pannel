@@ -5,7 +5,8 @@ import DashboardTopbar from '../components/DashboardTopbar.jsx';
 import DashboardSidebar from '../components/DashboardSidebar.jsx';
 import { useAuth } from '../components/AuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
-import { fetchUserOrders, cancelOrder, refreshProviderOrder } from '../services/adminDashboardAPI.js';
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
+import { cancelOrder, refreshProviderOrder } from '../services/adminDashboardAPI.js';
 
 const defaultStatusValues = ['all', 'pending', 'processing', 'completed', 'partial', 'canceled', 'refunded'];
 
@@ -185,8 +186,22 @@ export default function DashboardOrders() {
     try {
       setLoading(true);
       setError('');
-      const data = await fetchUserOrders(user.email, 100, 'all');
-      setOrders(Array.isArray(data) ? data : []);
+
+      const token = await user.getIdToken();
+      const url = getApiUrl(`${API_ENDPOINTS.ORDERS_USER(user.email)}?limit=100&status=all`);
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || payload.message || 'Failed to fetch orders');
+      }
+
+      setOrders(Array.isArray(payload.data) ? payload.data : []);
     } catch (err) {
       setError(err.message || 'Failed to load your orders');
     } finally {
@@ -195,8 +210,14 @@ export default function DashboardOrders() {
   }, [user?.email]);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user?.email) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
     loadOrders();
-  }, [loadOrders]);
+  }, [authLoading, user?.email, loadOrders]);
 
   useEffect(() => {
     const ordersToRefresh = orders

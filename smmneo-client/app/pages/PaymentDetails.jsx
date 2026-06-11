@@ -4,11 +4,11 @@ import { useParams, useNavigate, useLocation } from 'react-router';
 import '../styles/payment.css';
 import { submitAddFundRequest } from '../services/paymentAPI';
 import { useAuth } from '../components/AuthContext.jsx';
+import { getApiUrl } from '../config/api.js';
 import bkashLogo from '../assets/bkash.png';
 import nagadLogo from '../assets/nagad.png';
 import rocketLogo from '../assets/rocket.png';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
 
 const logoMap = {
   bkash: bkashLogo,
@@ -42,7 +42,7 @@ export default function PaymentDetails(){
 
     (async ()=>{
       try{
-        const resp = await fetch(`${API_BASE_URL}/api/payments/numbers`);
+        const resp = await fetch(getApiUrl('/api/payments/numbers'));
         const json = await resp.json().catch(()=>null);
         if (json && json.success && Array.isArray(json.data)){
           const found = json.data.find(d => (d.key||d._id||d.id) === methodKey || d.key === methodKey);

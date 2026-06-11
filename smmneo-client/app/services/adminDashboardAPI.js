@@ -1,6 +1,5 @@
 import { getStoredAdminAccessToken, clearAdminSession } from './adminSecureAPI.js';
-
-const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
+import { getApiUrl } from '../config/api.js';
 
 async function requestJson(path, options = {}) {
   const accessToken = getStoredAdminAccessToken();
@@ -12,7 +11,7 @@ async function requestJson(path, options = {}) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(getApiUrl(path), {
     headers,
     ...options,
   });

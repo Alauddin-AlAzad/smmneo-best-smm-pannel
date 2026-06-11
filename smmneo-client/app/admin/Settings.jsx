@@ -3,6 +3,7 @@ import DashboardLayout from '../components/admin/layout/DashboardLayout.jsx';
 import toast from 'react-hot-toast';
 import { fetchAdminSettings, saveAdminSettings } from '../services/adminDashboardAPI.js';
 import { getPaymentMethods, savePaymentMethod } from '../services/paymentAPI.js';
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
 
 // 1. Settings Modules data array (Bahire thaka e bhalo)
 const settingsModules = [
@@ -166,7 +167,7 @@ const ModalContent = ({
                   onClick={async () => {
                     if (confirm(`Delete provider "${provider.name}"?`)) {
                       try {
-                        const resp = await fetch(`http://localhost:3000/api/providers/${provider._id}`, { method: 'DELETE' });
+                        const resp = await fetch(getApiUrl(`${API_ENDPOINTS.PROVIDERS}/${provider._id}`), { method: 'DELETE' });
                         const data = await resp.json();
                         if (data && data.success) {
                           setProviders(providers.filter(p => p._id !== provider._id));
@@ -443,7 +444,7 @@ const AdminSettings = () => {
   const fetchProviders = async () => {
     try {
       setLoadingProviders(true);
-      const resp = await fetch('http://localhost:3000/api/providers');
+      const resp = await fetch(getApiUrl(API_ENDPOINTS.PROVIDERS));
       const data = await resp.json();
       if (data && data.success && Array.isArray(data.data)) setProviders(data.data);
     } catch (error) {
@@ -510,7 +511,7 @@ const AdminSettings = () => {
         loginUsername: formData.loginUsername,
         loginPassword: formData.loginPassword,
       };
-      const url = editingProviderId ? `http://localhost:3000/api/providers/${editingProviderId}` : 'http://localhost:3000/api/providers';
+      const url = editingProviderId ? getApiUrl(`${API_ENDPOINTS.PROVIDERS}/${editingProviderId}`) : getApiUrl(API_ENDPOINTS.PROVIDERS);
       const method = editingProviderId ? 'PUT' : 'POST';
 
       const resp = await fetch(url, {

@@ -1,35 +1,27 @@
 ﻿const express = require('express');
-const dotenv = require('dotenv');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
-const { connectDB, getDB } = require('./db.js');
+const admin = require('firebase-admin');
 const { ObjectId } = require('mongodb');
+const { connectDB, getDB } = require('./dbServerless');
+const { authMiddleware, isAllowedOrigin } = require('./firebaseAuthMiddleware');
+const { getFirebaseAdmin } = require('./firebaseAdmin');
 
 const adminRouter = require('./adminRoutes');
 const adminAuth = require('./adminAuth');
 const { seedSuperAdmin } = require('./adminAuth');
 
-const firebaseAdmin = require('firebase-admin');
-let firebaseFirestore = null;
-try {
-  firebaseAdmin.initializeApp({
-    credential: firebaseAdmin.credential.applicationDefault(),
-  });
-  firebaseFirestore = firebaseAdmin.firestore();
-} catch (firebaseInitError) {
-  // Firebase Admin initialization failed, continuing without it
-}
-
 async function updateFirestoreUserBalance(firebaseUid, usdAmount) {
-  if (!firebaseFirestore || !firebaseUid || typeof usdAmount !== 'number' || usdAmount <= 0) {
+  const { firestore } = getFirebaseAdmin();
+  if (!firestore || !firebaseUid || typeof usdAmount !== 'number' || usdAmount <= 0) {
     return;
   }
   try {
-    const userRef = firebaseFirestore.doc(`users/${firebaseUid}`);
+    const userRef = firestore.doc(`users/${firebaseUid}`);
     await userRef.set(
       {
-        balanceUSD: firebaseAdmin.firestore.FieldValue.increment(usdAmount),
+        balanceUSD: admin.firestore.FieldValue.increment(usdAmount),
         updatedAt: new Date(),
       },
       { merge: true }
@@ -39,10 +31,20 @@ async function updateFirestoreUserBalance(firebaseUid, usdAmount) {
   }
 }
 
-dotenv.config();
-
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Middleware to ensure DB connection and attach to req
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    req.db = getDB();
+    return next();
+  } catch (err) {
+    console.error('❌ DB middleware error:', err.message);
+    return res.status(503).json({ success: false, error: 'Service temporarily unavailable', message: 'Database connection not ready' });
+  }
+});
 
 const providerServicesCache = {
   providerKey: null,
@@ -872,6 +874,19 @@ async function fetchCollectionRows(db, collectionName, mapper, limit = ADMIN_LIS
 
 app.set('trust proxy', 1);
 app.use(helmet());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || isAllowedOrigin(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS origin not allowed'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Auth-Token'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+}));
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -906,33 +921,16 @@ function requireAdminApiAuth(req, res, next) {
     });
 }
 
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5174';
-const additionalAllowedOrigins = (process.env.CLIENT_ORIGINS || 'http://localhost:5173,http://localhost:5174').split(',').map((o) => o.trim()).filter(Boolean);
-const allowedOrigins = new Set([CLIENT_ORIGIN, ...additionalAllowedOrigins]);
-
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (allowedOrigins.has(origin)) return true;
-  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
-  return false;
-}
-
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (isAllowedOrigin(origin)) {
-      return callback(null, true);
-    }
-    const err = new Error(`CORS origin not allowed: ${origin}`);
-    err.status = 403;
-    return callback(err);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
-};
-app.use(cors(corsOptions));
 app.use('/api/admin', requireAdminApiAuth);
+
+// CORS error handler (catches origin rejections)
+app.use((err, req, res, next) => {
+  if (err.status === 403 && err.message.includes('CORS')) {
+    console.warn(`❌ CORS blocked: ${req.method} ${req.path} from origin: ${req.get('origin')}`);
+    return res.status(403).json({ success: false, error: 'CORS not allowed', origin: req.get('origin') });
+  }
+  next(err);
+});
 
 // Simple request logger
 app.use((req, res, next) => {
@@ -1621,42 +1619,54 @@ app.get('/api/users/status/:email', async (req, res) => {
   }
 });
 
-// GET /api/users/me - Authoritative check for the currently authenticated Firebase user
-app.get('/api/users/me', async (req, res) => {
+/**
+ * GET /api/users/me
+ * Retrieve the currently authenticated user's profile from MongoDB
+ * 
+ * Authentication:
+ * - Required: Bearer token (Firebase ID Token or dev token)
+ * - Header: Authorization: Bearer <token>
+ * - Dev mode: Set DEV_MODE=true or send x-dev-bypass=true header to skip auth
+ * 
+ * Returns:
+ * - 200: { success: true, data: { id, email, username, displayName, balanceUSD, status } }
+ * - 400: { error: "Missing authorization header" } - No auth header provided
+ * - 401: { error: "Invalid or expired token" } - Token verification failed
+ * - 404: { error: "User not found or inactive" } - User doesn't exist in DB
+ * - 503: { error: "Firebase not available" } - Firebase Admin not initialized
+ * - 500: { error: "Server error", message: "..." } - Unexpected error
+ */
+app.get('/api/users/me', authMiddleware, async (req, res) => {
   try {
-    if (!firebaseAdmin) {
-      return res.status(503).json({ success: false, error: 'Firebase Admin not initialized' });
-    }
-
-    const authHeader = (req.headers.authorization || '').trim();
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-    if (!token) return res.status(401).json({ success: false, error: 'Missing authentication token' });
-
-    let decoded;
-    try {
-      decoded = await firebaseAdmin.auth().verifyIdToken(token);
-    } catch (err) {
-      return res.status(401).json({ success: false, error: 'Invalid or expired token' });
-    }
-
     const db = getDB();
-    const usersCol = db.collection('users');
-    const user = await usersCol.findOne({ firebaseUid: decoded.uid });
-    if (!user || (user.status && String(user.status).toLowerCase() !== 'active')) {
+    const decoded = req.user;
+    if (!decoded || !decoded.uid) {
+      return res.status(401).json({ success: false, error: 'Invalid auth token' });
+    }
+
+    const user = await db.collection('users').findOne({ firebaseUid: decoded.uid });
+    if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // Return a minimal safe user object
-    return res.json({ success: true, data: {
-      id: user._id?.toString?.(),
-      email: user.email,
-      username: user.username,
-      displayName: user.displayName,
-      balanceUSD: Number(user.balanceUSD || 0),
-      status: user.status || 'active',
-    }});
+    if (String(user.status || 'active').toLowerCase() !== 'active') {
+      return res.status(403).json({ success: false, error: 'User account disabled' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: user._id.toString(),
+        email: user.email,
+        username: user.username,
+        displayName: user.displayName || user.name || user.username,
+        balanceUSD: Number(user.balanceUSD || 0),
+        status: user.status || 'active',
+      },
+    });
   } catch (err) {
-    return res.status(500).json({ success: false, error: 'Failed to verify user' });
+    console.error('/api/users/me failed:', err.message);
+    return res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
@@ -1861,35 +1871,98 @@ app.get('/api/admin/order/:orderId/raw', async (req, res) => {
   }
 });
 
-// GET /api/orders/user/:email - Get orders for a specific user
-app.get('/api/orders/user/:email', async (req, res) => {
+/**
+ * GET /api/orders/user/:email
+ * Fetch all orders for a specific user
+ * 
+ * Parameters:
+ * - :email (required) - User email (URL encoded)
+ * - query.status (optional) - Filter by status ('all', 'pending', 'processing', 'completed', etc.)
+ * - query.limit (optional) - Max results (1-200, default 50)
+ */
+app.get('/api/orders/user/:email', authMiddleware, async (req, res) => {
+  // Try to get database connection first
+  let db;
   try {
-    const db = getDB();
-    const { email } = req.params;
+    db = getDB();
+  } catch (dbErr) {
+    console.error('❌ Database connection error in /api/orders/user:', {
+      message: dbErr?.message,
+      type: dbErr?.name,
+      email: req.params.email,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(503).json({
+      success: false,
+      error: 'Service temporarily unavailable',
+      message: 'Database connection not ready. Try again in a moment.',
+    });
+  }
+
+  try {
+    // Decode email from URL parameters
+    let email = req.params.email;
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Missing email parameter' });
+    }
+    
+    // Decode URL-encoded email
+    try {
+      email = decodeURIComponent(email);
+    } catch (decodeErr) {
+      return res.status(400).json({ success: false, error: 'Invalid email encoding in URL' });
+    }
+    
+    // Validate email
+    if (!email || typeof email !== 'string' || email.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Invalid email format' });
+    }
+
+    const currentUser = await db.collection('users').findOne({ firebaseUid: req.user.uid });
+    if (!currentUser || String(currentUser.email).toLowerCase() !== decodeURIComponent(email).toLowerCase()) {
+      return res.status(403).json({ success: false, error: 'Unauthorized access' });
+    }
+    
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || ADMIN_LIST_LIMIT));
     const status = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : '';
 
-    if (!email) {
-      return res.status(400).json({ success: false, error: 'Missing email' });
-    }
-
+    // Build query with case-insensitive email match
     const query = {
-      email: { $regex: `^${email}$`, $options: 'i' },
+      email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
     };
 
     if (status && status !== 'all') {
       query.status = status;
     }
 
-    const orders = await db.collection('orders')
+    // Fetch orders from database
+    const ordersCol = db.collection('orders');
+    if (!ordersCol) {
+      console.error('❌ Orders collection not found');
+      return res.status(500).json({ success: false, error: 'Database error', message: 'Orders collection unavailable' });
+    }
+
+    const orders = await ordersCol
       .find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
       .toArray();
 
+    console.log(`✅ Fetched ${orders.length} orders for ${email}`);
     res.json({ success: true, data: orders.map(mapUserOrderRow) });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to load user orders' });
+    console.error('❌ /api/orders/user/:email error:', {
+      message: err?.message,
+      stack: err?.stack,
+      email: req.params.email,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load user orders',
+      message: process.env.NODE_ENV === 'development' ? err?.message : 'Server error loading orders',
+      debug: process.env.NODE_ENV === 'development' ? { email: req.params.email } : undefined,
+    });
   }
 });
 
@@ -2116,34 +2189,94 @@ app.post('/api/admin/tickets/:ticketId/close', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/tickets/user/:email
+ * Fetch all support tickets for a specific user
+ * 
+ * Parameters:
+ * - :email (required) - User email (URL encoded, e.g. user%40example.com)
+ * - query.status (optional) - Filter by status ('all', 'pending', 'answered', 'closed')
+ * - query.limit (optional) - Max results (1-200, default 100)
+ */
 app.get('/api/tickets/user/:email', async (req, res) => {
+  // Try to get database connection first
+  let db;
   try {
-    const db = getDB();
-    const { email } = req.params;
+    db = getDB();
+  } catch (dbErr) {
+    console.error('❌ Database connection error in /api/tickets/user:', {
+      message: dbErr?.message,
+      type: dbErr?.name,
+      email: req.params.email,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(503).json({
+      success: false,
+      error: 'Service temporarily unavailable',
+      message: 'Database connection not ready. Try again in a moment.',
+    });
+  }
+
+  try {
+    
+    // Decode email from URL parameters
+    let email = req.params.email;
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Missing email parameter' });
+    }
+    
+    // Decode URL-encoded email (e.g., user%40example.com → user@example.com)
+    try {
+      email = decodeURIComponent(email);
+    } catch (decodeErr) {
+      return res.status(400).json({ success: false, error: 'Invalid email encoding in URL' });
+    }
+    
+    // Validate email format
+    if (!email || typeof email !== 'string' || email.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Invalid email format' });
+    }
+    
     const status = normalizeStatus(req.query.status, 'all');
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
 
-    if (!email) {
-      return res.status(400).json({ success: false, error: 'Missing email' });
-    }
-
+    // Build query with case-insensitive email match
     const query = {
-      email: { $regex: `^${email}$`, $options: 'i' },
+      email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
     };
 
     if (status !== 'all') {
       query.status = status;
     }
 
-    const tickets = await db.collection('tickets')
+    // Fetch tickets from database
+    const ticketsCol = db.collection('tickets');
+    if (!ticketsCol) {
+      console.error('❌ Tickets collection not found');
+      return res.status(500).json({ success: false, error: 'Database error', message: 'Tickets collection unavailable' });
+    }
+
+    const tickets = await ticketsCol
       .find(query)
       .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
       .limit(limit)
       .toArray();
 
+    console.log(`✅ Fetched ${tickets.length} tickets for ${email}`);
     res.json({ success: true, data: tickets.map(mapTicketThread) });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to load user tickets' });
+    console.error('❌ /api/tickets/user/:email error:', {
+      message: err?.message,
+      stack: err?.stack,
+      email: req.params.email,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load user tickets',
+      message: process.env.NODE_ENV === 'development' ? err?.message : 'Server error loading tickets',
+      debug: process.env.NODE_ENV === 'development' ? { email: req.params.email } : undefined,
+    });
   }
 });
 
@@ -2246,6 +2379,7 @@ app.get('/api/providers', async (req, res) => {
     const providers = await db.collection('providers').find({}).toArray();
     res.json({ success: true, data: providers });
   } catch (error) {
+    console.error('Error fetching providers:', error && error.stack ? error.stack : error);
     res.status(500).json({ success: false, message: 'Failed to fetch providers' });
   }
 });
@@ -2814,23 +2948,59 @@ try {
   app.use('/api/payments', paymentsRouter);
 } catch (err) {
 }
+// Temporary debug route to test DB connection (remove after debugging)
+app.get('/_debug/dbtest', async (req, res) => {
+  try {
+    await connectDB();
+    return res.json({ success: true, message: 'DB connected' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message, stack: err.stack });
+  }
+});
 
-// 404 handler
+// 404 handler - must be after all routes
 app.use((req, res) => {
-  res.status(404).json({ error: 'Not found', path: req.path });
+  res.status(404).json({
+    success: false,
+    error: 'Not found',
+    path: req.path,
+    method: req.method,
+  });
 });
 
-// Error handler
+// Global error handler - catches all unhandled errors
 app.use((err, req, res, next) => {
-  res.status(500).json({ error: 'Internal server error', message: err.message });
+  console.error('❌ Unhandled error:', {
+    message: err?.message,
+    status: err?.status || 500,
+    path: req.path,
+    method: req.method,
+    stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined,
+  });
+
+  const statusCode = err?.status || err?.statusCode || 500;
+  const errorMessage = err?.message || 'Internal server error';
+
+  // Ensure CORS headers are sent even on errors
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+
+  res.status(statusCode).json({
+    success: false,
+    error: statusCode >= 500 ? 'Server error' : 'Request error',
+    message: process.env.NODE_ENV === 'development' ? errorMessage : 'An error occurred',
+    path: process.env.NODE_ENV === 'development' ? req.path : undefined,
+  });
 });
 
-// Start server after DB connection
+// Connect to DB and seed admin for local/dev mode
 async function start() {
   try {
     await connectDB();
     await seedSuperAdmin();
     const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server listening on http://0.0.0.0:${PORT}`);
     });
 
     process.on('SIGINT', () => {
@@ -2841,10 +3011,30 @@ async function start() {
       server.close(() => process.exit(0));
     });
   } catch (err) {
+    console.error('Server startup failed:', err);
     process.exit(1);
   }
 }
 
-start();
+if (require.main === module) {
+  start();
+}
+
+// When the file is imported (serverless / Vercel), try to connect the DB on cold-start
+if (require.main !== module) {
+  (async () => {
+    try {
+      await connectDB();
+      // Seed admin if needed; ignore errors to avoid blocking imports
+      try {
+        await seedSuperAdmin();
+      } catch (e) {
+        // ignore
+      }
+    } catch (err) {
+      console.error('Initial DB connection failed:', err);
+    }
+  })();
+}
 
 module.exports = app;

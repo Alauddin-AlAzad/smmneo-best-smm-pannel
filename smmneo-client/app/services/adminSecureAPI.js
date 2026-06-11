@@ -1,4 +1,5 @@
-const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
+import { getApiUrl } from '../config/api.js';
+
 const ACCESS_TOKEN_KEY = 'smmsecure_admin_access_token';
 let csrfToken = null;
 
@@ -19,7 +20,7 @@ function clearAccessToken() {
 
 async function fetchCsrfToken() {
   if (csrfToken) return csrfToken;
-  const response = await fetch(`${API_BASE_URL}/smmsecure/admin/auth/csrf-token`, {
+  const response = await fetch(getApiUrl('/smmsecure/admin/auth/csrf-token'), {
     method: 'GET',
     credentials: 'include',
     headers: {
@@ -36,7 +37,7 @@ async function fetchCsrfToken() {
 
 async function refreshAdminToken() {
   await fetchCsrfToken();
-  const response = await fetch(`${API_BASE_URL}/smmsecure/admin/auth/refresh`, {
+  const response = await fetch(getApiUrl('/smmsecure/admin/auth/refresh'), {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -69,7 +70,7 @@ async function requestJson(path, options = {}) {
     headers['X-CSRF-Token'] = await fetchCsrfToken();
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(getApiUrl(path), {
     credentials: 'include',
     ...options,
     method,

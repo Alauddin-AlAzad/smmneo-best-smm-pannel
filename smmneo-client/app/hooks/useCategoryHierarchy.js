@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
 
 export const PREDEFINED_CATEGORIES = [
 	{ label: 'Everything', faClass: 'fas fa-layer-group' },
@@ -28,7 +29,7 @@ export function useCategoryHierarchy(selectedCategory = 'Everything') {
 			setLoading(true);
 			setError(null);
 
-			const servicesResp = await fetch('http://localhost:3000/api/provider/services?limit=10000&admin=true');
+			const servicesResp = await fetch(getApiUrl(API_ENDPOINTS.PROVIDER_SERVICES + '?limit=10000&admin=true'));
 			if (!servicesResp.ok) {
 				throw new Error(`Failed to fetch services: ${servicesResp.statusText}`);
 			}
@@ -45,8 +46,8 @@ export function useCategoryHierarchy(selectedCategory = 'Everything') {
 
 			if (selectedCategory === 'Everything') {
 				const [catsResp, subsResp] = await Promise.all([
-					fetch('http://localhost:3000/api/provider/categories'),
-					fetch('http://localhost:3000/api/provider/subcategories'),
+					fetch(getApiUrl(API_ENDPOINTS.PROVIDER_CATEGORIES)),
+					fetch(getApiUrl(API_ENDPOINTS.PROVIDER_SUBCATEGORIES)),
 				]);
 
 				if (!catsResp.ok) throw new Error(`Failed to fetch categories: ${catsResp.statusText}`);

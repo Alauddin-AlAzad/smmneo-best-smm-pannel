@@ -73,7 +73,7 @@ const AdminServices = () => {
   const fetchProviderSettings = async () => {
     try {
       setLoadingSettings(true);
-      const response = await fetch('http://localhost:3000/api/settings');
+      const response = await fetch(getApiUrl(API_ENDPOINTS.SETTINGS));
       const data = await response.json();
       if (data && data.success && data.data && data.data.provider) {
         setProviderSettings(data.data.provider);
@@ -82,7 +82,8 @@ const AdminServices = () => {
         setProfitPercentage('0');
         toast.error('No provider configured. Please set provider settings first.');
       }
-    } catch (error) {      toast.error('Failed to load provider settings');
+    } catch (error) {
+      toast.error('Failed to load provider settings');
     } finally {
       setLoadingSettings(false);
     }
@@ -91,12 +92,13 @@ const AdminServices = () => {
   const fetchProviders = async () => {
     try {
       setLoadingProviders(true);
-      const response = await fetch('http://localhost:3000/api/providers');
+      const response = await fetch(getApiUrl(API_ENDPOINTS.PROVIDERS));
       const data = await response.json();
       if (data && data.success && Array.isArray(data.data)) {
         setProviders(data.data);
       }
-    } catch (error) {      toast.error('Failed to load providers');
+    } catch (error) {
+      toast.error('Failed to load providers');
     } finally {
       setLoadingProviders(false);
     }
@@ -120,7 +122,7 @@ const AdminServices = () => {
         defaultProfitPercentage: normalizedProfitPercentage,
       };
 
-      const response = await fetch('http://localhost:3000/api/settings', {
+      const response = await fetch(getApiUrl(API_ENDPOINTS.SETTINGS), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: providerPayload }),
@@ -149,7 +151,8 @@ const AdminServices = () => {
         toast.error(data.error || 'Failed to switch provider');
       }
       return false;
-    } catch (error) {      if (!silent) {
+    } catch (error) {
+      if (!silent) {
         toast.error('Failed to switch provider');
       }
       return false;

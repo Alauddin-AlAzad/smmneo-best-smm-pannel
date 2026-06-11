@@ -12,6 +12,7 @@ import {
 import { doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase_init.js";
 import toast from "react-hot-toast";
+import { getApiUrl, API_ENDPOINTS } from "../config/api.js";
 
 const AuthContext = createContext();
 
@@ -92,7 +93,7 @@ export const AuthProvider = ({ children }) => {
       
       // Sync existing user to MongoDB and fail fast for deleted/inactive accounts
       try {
-        const syncResp = await fetch('http://localhost:3000/api/users/sync-firebase', {
+        const syncResp = await fetch(getApiUrl(API_ENDPOINTS.USERS_SYNC_FIREBASE), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -135,7 +136,7 @@ export const AuthProvider = ({ children }) => {
 
       // Register user in MongoDB backend
       try {
-        const response = await fetch('http://localhost:3000/api/users/register', {
+        const response = await fetch(getApiUrl(API_ENDPOINTS.USERS_REGISTER), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -188,7 +189,7 @@ export const AuthProvider = ({ children }) => {
           ? displayName.replace(/\s+/g, '_').toLowerCase()
           : email.split('@')[0].toLowerCase();
 
-        const response = await fetch('http://localhost:3000/api/users/sync-firebase', {
+        const response = await fetch(getApiUrl(API_ENDPOINTS.USERS_SYNC_FIREBASE), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -254,13 +255,13 @@ export const AuthProvider = ({ children }) => {
     try {
       if (!auth.currentUser) return null;
       const token = await auth.currentUser.getIdToken();
-      const response = await fetch('http://localhost:3000/api/users/me', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
+        const response = await fetch(getApiUrl(API_ENDPOINTS.USERS_ME), {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
       if (!response.ok) {
         if (response.status === 403 || response.status === 404) {
           await signOut(auth);
@@ -292,7 +293,7 @@ export const AuthProvider = ({ children }) => {
     try {
       if (!auth.currentUser) return;
       const token = await auth.currentUser.getIdToken();
-      const response = await fetch('http://localhost:3000/api/users/me', {
+      const response = await fetch(getApiUrl(API_ENDPOINTS.USERS_ME), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -350,7 +351,7 @@ export const AuthProvider = ({ children }) => {
 
       // Sync balance to MongoDB
       try {
-        await fetch('http://localhost:3000/api/users/sync-balance', {
+        await fetch(getApiUrl(API_ENDPOINTS.USERS_SYNC_BALANCE), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -6,13 +6,9 @@ import { useAuth } from '../components/AuthContext.jsx';
 import { useCurrency } from '../context/CurrencyContext.jsx';
 import DashboardTopbar from '../components/DashboardTopbar.jsx';
 import DashboardSidebar from '../components/DashboardSidebar.jsx';
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000').replace(/\/\/$/, '');
 const PAGE_SIZE = 25;
-
-export async function loader() {
-  return null;
-}
 
 function normalizeService(service) {
   return {
@@ -94,7 +90,7 @@ export default function DashboardServicesPage() {
         params.set('subcategory', subcategory);
       }
 
-      const resp = await fetch(`${API_BASE_URL}/api/provider/services?${params.toString()}`);
+      const resp = await fetch(getApiUrl(`${API_ENDPOINTS.PROVIDER_SERVICES}?${params.toString()}`));
       if (!resp.ok) {
         throw new Error(`Failed to load services (${resp.status})`);
       }
@@ -129,7 +125,7 @@ export default function DashboardServicesPage() {
 
   const fetchAllCategories = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_BASE_URL}/api/provider/subcategories`);
+      const resp = await fetch(getApiUrl(API_ENDPOINTS.PROVIDER_SUBCATEGORIES));
       if (!resp.ok) return;
 
       const json = await resp.json();

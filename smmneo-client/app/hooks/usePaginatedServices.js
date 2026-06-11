@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { getApiUrl } from '../config/api.js';
 
 // API URL for browser environment
-const API_BASE = 'http://localhost:3000/api';const DEBOUNCE_DELAY = 500; // ms
+const API_BASE = getApiUrl('/api');
+const DEBOUNCE_DELAY = 500; // ms
 
 
 export function usePaginatedServices() {

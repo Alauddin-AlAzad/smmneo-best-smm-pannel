@@ -15,7 +15,7 @@ export function useDashboardServices() {
       setLoading(true);
       setError(null);
 
-      const response = await fetch('http://localhost:3000/api/provider/services');
+      const response = await fetch(getApiUrl(API_ENDPOINTS.PROVIDER_SERVICES));
       
       if (!response.ok) {
         throw new Error(`Failed to fetch services: ${response.statusText}`);
@@ -61,8 +61,10 @@ export function useDashboardServices() {
       const uniqueCategories = [...new Set(servicesList.map(s => s.category))].sort();
       
       setServices(servicesList);
-      setCategories(uniqueCategories);      return { services: servicesList, categories: uniqueCategories };
-    } catch (err) {      setError(err.message);
+      setCategories(uniqueCategories);
+      return { services: servicesList, categories: uniqueCategories };
+    } catch (err) {
+      setError(err.message);
       setServices([]);
       setCategories([]);
       return { services: [], categories: [] };

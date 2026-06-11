@@ -3,7 +3,7 @@
  * Handles all provider CRUD operations with the backend
  */
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000') + '/api/providers';
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
 
 class ProviderService {
   /**
@@ -11,7 +11,7 @@ class ProviderService {
    */
   static async getAllProviders() {
     try {
-      const response = await fetch(`${API_BASE_URL}`, {
+      const response = await fetch(getApiUrl(API_ENDPOINTS.PROVIDERS), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -25,7 +25,8 @@ class ProviderService {
 
       const result = await response.json();
       return result.data || [];
-    } catch (error) {      throw error;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -34,7 +35,7 @@ class ProviderService {
    */
   static async getProvider(id) {
     try {
-      const response = await fetch(`${API_BASE_URL}/${id}`, {
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.PROVIDERS}/${id}`), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -48,7 +49,8 @@ class ProviderService {
 
       const result = await response.json();
       return result.data;
-    } catch (error) {      throw error;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -57,18 +59,23 @@ class ProviderService {
    * @param {Object} providerData - { name, apiUrl, apiKey, disableSync, loginUsername, loginPassword }
    */
   static async createProvider(providerData) {
-    try {      const response = await fetch(`${API_BASE_URL}`, {
+    try {
+      const response = await fetch(getApiUrl(API_ENDPOINTS.PROVIDERS), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(providerData),
-      });      if (!response.ok) {
-        const error = await response.json();        throw new Error(error.error || `HTTP Error: ${response.status}`);
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `HTTP Error: ${response.status}`);
       }
 
-      const result = await response.json();      return result.data;
-    } catch (error) {      throw error;
+      const result = await response.json();
+      return result.data;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -79,7 +86,7 @@ class ProviderService {
    */
   static async updateProvider(id, updateData) {
     try {
-      const response = await fetch(`${API_BASE_URL}/${id}`, {
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.PROVIDERS}/${id}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -94,7 +101,8 @@ class ProviderService {
 
       const result = await response.json();
       return result.data;
-    } catch (error) {      throw error;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -118,7 +126,8 @@ class ProviderService {
 
       const result = await response.json();
       return result;
-    } catch (error) {      throw error;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -141,7 +150,8 @@ class ProviderService {
 
       const result = await response.json();
       return result.data || [];
-    } catch (error) {      throw error;
+    } catch (error) {
+      throw error;
     }
   }
 }

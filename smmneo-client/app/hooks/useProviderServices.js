@@ -25,7 +25,8 @@ export function useProviderServices(apiUrl, apiKey) {
     setLoading(true);
     setError(null);
 
-    try {      let data = null;
+    try {
+      let data = null;
       let paginationData = null;
 
       if (apiUrl && apiKey) {
@@ -47,7 +48,8 @@ export function useProviderServices(apiUrl, apiKey) {
           };
           
           setServices(paginatedData);
-          setPagination(paginationData);        }
+          setPagination(paginationData);
+        }
       } else {
         // Backend proxy with server-side pagination
         const params = new URLSearchParams({
@@ -62,7 +64,7 @@ export function useProviderServices(apiUrl, apiKey) {
         appendBooleanParam(params, 'refill', options.refill);
         appendBooleanParam(params, 'cancel', options.cancel);
 
-        const resp = await fetch(`http://localhost:3000/api/provider/services?${params.toString()}`);
+        const resp = await fetch(getApiUrl(`${API_ENDPOINTS.PROVIDER_SERVICES}?${params.toString()}`));
         if (!resp.ok) throw new Error(`Provider proxy failed: ${resp.statusText}`);
         const json = await resp.json();
         
@@ -77,11 +79,13 @@ export function useProviderServices(apiUrl, apiKey) {
           };
           
           setServices(services);
-          setPagination(paginationData);        } else {
+          setPagination(paginationData);
+        } else {
           throw new Error(json.error || 'Invalid proxy response');
         }
       }
-    } catch (err) {      setError(err.message || 'Failed to fetch services');
+    } catch (err) {
+      setError(err.message || 'Failed to fetch services');
       setServices([]);
       setPagination((prev) => ({
         ...prev,

@@ -4,11 +4,12 @@
  * All requests go to local backend which then proxies to provider API
  */
 
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
+
 class ProviderAPI {
   constructor(apiUrl, apiKey) {
     this.apiUrl = apiUrl;
     this.apiKey = apiKey;
-    this.backendUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
   }
 
   /**
@@ -16,7 +17,7 @@ class ProviderAPI {
    */
   async callBackendProxy(action, additionalParams = {}) {
     try {
-      const response = await fetch(`${this.backendUrl}/api/providers/${action}`, {
+      const response = await fetch(getApiUrl(`${API_ENDPOINTS.PROVIDERS}/${action}`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -35,7 +36,8 @@ class ProviderAPI {
 
       const data = await response.json();
       return data;
-    } catch (error) {      throw error;
+    } catch (error) {
+      throw error;
     }
   }
 

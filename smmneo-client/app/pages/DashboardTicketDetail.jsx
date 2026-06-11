@@ -6,10 +6,6 @@ import DashboardSidebar from '../components/DashboardSidebar.jsx';
 import { useAuth } from '../components/AuthContext.jsx';
 import { fetchTicketThread, replyToSupportTicket } from '../services/adminDashboardAPI.js';
 
-export async function loader() {
-	return null;
-}
-
 function getStatusClass(status) {
 	const value = String(status || 'pending').toLowerCase();
 	if (value === 'answered') return 'bg-green-100 text-green-700';
