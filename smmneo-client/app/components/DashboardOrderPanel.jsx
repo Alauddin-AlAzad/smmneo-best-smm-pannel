@@ -30,7 +30,7 @@ function matchesSearchTerm(service, term) {
 }
 
 export default function DashboardOrderPanel({ selectedCategory = 'Everything', onCategoryChange = null }) {
-  const { user, refreshUserProfile } = useAuth();
+  const { user, refreshUserProfile, refreshBalance } = useAuth();
   const { currency, formatCurrency } = useCurrency();
   const location = useLocation();
 
@@ -263,21 +263,9 @@ export default function DashboardOrderPanel({ selectedCategory = 'Everything', o
       setLink('');
       setQuantity('');
 
-      if (auth.currentUser) {
-        try {
-          const userRef = doc(db, 'users', auth.currentUser.uid);
-          await setDoc(userRef, {
-            balanceUSD: orderData.newBalance,
-            totalOrders: (user?.totalOrders || 0) + 1,
-            totalSpent: (parseFloat(user?.totalSpent) || 0) + chargeNumeric,
-          }, { merge: true });
-        } catch (firestoreErr) {
-        }
-      }
-
-      setTimeout(() => {
-        refreshUserProfile().catch(() => {});
-      }, 500);
+      // Immediately refresh balance from the server so MongoDB remains the source of truth.
+      await refreshBalance();
+      await refreshUserProfile();
     } catch (err) {
       setLastError(err.message || 'Failed to create order');
       setLastOrder(null);
@@ -367,17 +355,8 @@ export default function DashboardOrderPanel({ selectedCategory = 'Everything', o
       setPendingOrderConflict(null);
       setMassOrderText('');
 
-      if (auth.currentUser && lastCreated?.orderData) {
-        try {
-          const userRef = doc(db, 'users', auth.currentUser.uid);
-          await setDoc(userRef, { balanceUSD: lastCreated.orderData.newBalance }, { merge: true });
-        } catch (firestoreErr) {
-        }
-      }
-
-      setTimeout(() => {
-        refreshUserProfile().catch(() => {});
-      }, 500);
+      await refreshBalance();
+      await refreshUserProfile();
 
       toast.success(`Submitted ${createdOrders.length} orders`);
     } catch (err) {

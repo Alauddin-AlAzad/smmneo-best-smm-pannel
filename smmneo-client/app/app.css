@@ -68,3 +68,33 @@ body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+.smooth-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.smooth-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.horizontal-scroll-table {
+  overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+}
+
+.horizontal-scroll-table::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+

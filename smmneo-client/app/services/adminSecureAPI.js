@@ -77,7 +77,15 @@ async function requestJson(path, options = {}) {
     headers,
   });
 
-  const data = await response.json().catch(() => ({}));
+  let data = {};
+  let responseText = '';
+  try {
+    responseText = await response.text();
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch (parseError) {
+    data = {};
+  }
+
   if (response.status === 401 && !options._retry) {
     try {
       await refreshAdminToken();
@@ -89,7 +97,14 @@ async function requestJson(path, options = {}) {
   }
 
   if (!response.ok || data.success === false) {
-    throw new Error(data.error || data.message || `Request failed for ${path}`);
+    const errorMessage = data.error || data.message || responseText || `Request failed for ${path}`;
+    const errorPayload = {
+      status: response.status,
+      statusText: response.statusText,
+      body: responseText,
+      error: errorMessage,
+    };
+    throw new Error(JSON.stringify(errorPayload));
   }
 
   return data.data;

@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { getDB } = require('./db');
+const { getDB } = require('./dbServerless');
 const { ObjectId } = require('mongodb');
 
 const ACCESS_TOKEN_SECRET = process.env.JWT_ACCESS_TOKEN_SECRET || 'smmsecure-access-secret-please-change';

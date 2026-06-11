@@ -47,8 +47,20 @@ const AdminUsers = () => {
 
     initLoad();
 
+    // Poll for balance updates every 3 seconds
+    const pollInterval = setInterval(() => {
+      fetchAdminUsers(100)
+        .then((data) => {
+          if (mounted) {
+            setUsers(Array.isArray(data) ? data : []);
+          }
+        })
+        .catch(() => {});
+    }, 3000);
+
     return () => {
       mounted = false;
+      clearInterval(pollInterval);
     };
   }, []);
 
@@ -87,6 +99,7 @@ const AdminUsers = () => {
               <tr className="border-b border-slate-200 bg-slate-50">
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Name</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Email</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Balance</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Join Date</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Actions</th>
@@ -104,6 +117,9 @@ const AdminUsers = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-600">{user.email}</td>
+                  <td className="px-6 py-4">
+                    <span className="text-sm font-semibold text-slate-900">${(user.balanceUSD || 0).toFixed(8)}</span>
+                  </td>
                   <td className="px-6 py-4">
                     <span
                       className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${

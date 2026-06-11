@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import ProviderAPI from '../services/providerAPI.js';
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
 
 function appendBooleanParam(params, key, value) {
   if (value === true) {

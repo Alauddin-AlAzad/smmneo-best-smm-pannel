@@ -42,19 +42,9 @@ export const AuthProvider = ({ children }) => {
             return;
           }
 
-          const userRef = doc(db, "users", user.uid);
-          try {
-            const snap = await getDoc(userRef);
-            if (snap.exists()) {
-              const data = snap.data();
-              setBalanceUSD(Number(data.balanceUSD || 0));
-            } else {
-              setBalanceUSD(0);
-            }
-          } catch (firestoreError) {
-            setBalanceUSD(0);
-          }
+          await refreshUserProfile();
 
+          const userRef = doc(db, "users", user.uid);
           try {
             unsubscribeUserDoc = onSnapshot(
               userRef,
@@ -235,19 +225,34 @@ export const AuthProvider = ({ children }) => {
   };
 
   const refreshBalance = async () => {
+    if (!auth.currentUser) return 0;
     try {
-      if (!auth.currentUser) return 0;
-      const userRef = doc(db, "users", auth.currentUser.uid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        const val = Number(data.balanceUSD || 0);
-        setBalanceUSD(val);
-        return val;
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch(getApiUrl(API_ENDPOINTS.USERS_ME), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) return balanceUSD;
+      const data = await response.json();
+      if (!data.success || !data.data) return balanceUSD;
+
+      const newBalance = Math.round((parseFloat(data.data.balanceUSD || 0) + Number.EPSILON) * 1e8) / 1e8;
+      setBalanceUSD(newBalance);
+
+      try {
+        const userRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userRef, { balanceUSD: newBalance }, { merge: true });
+      } catch (_firestoreErr) {
+        // Firestore sync is best effort
       }
-      return 0;
+
+      return newBalance;
     } catch (e) {
-      return 0;
+      return balanceUSD;
     }
   };
 
@@ -269,18 +274,16 @@ export const AuthProvider = ({ children }) => {
         return null;
       }
       const data = await response.json();
-      if (data.success && data.data) {
+        if (data.success && data.data) {
         const currentUser = data.data;
         const userRef = doc(db, 'users', auth.currentUser.uid);
         const newBalance = parseFloat(currentUser.balanceUSD || 0);
         await setDoc(userRef, {
           balanceUSD: newBalance,
         }, { merge: true });
+        // Update balance state only. Do NOT mutate or replace the Firebase `user` object
+        // because spreading it converts it to a plain object and removes methods like getIdToken.
         setBalanceUSD(newBalance);
-        setUser(prev => prev ? {
-          ...prev,
-          balanceUSD: newBalance,
-        } : null);
         return currentUser;
       }
       return null;
@@ -310,13 +313,12 @@ export const AuthProvider = ({ children }) => {
       if (!data.success || !data.data) return;
       const currentUser = data.data;
       const userRef = doc(db, 'users', auth.currentUser.uid);
-      const newBalance = parseFloat(currentUser.balanceUSD || 0);
+      const newBalance = Math.round((parseFloat(currentUser.balanceUSD || 0) + Number.EPSILON) * 1e8) / 1e8;
       const snap = await getDoc(userRef);
       const currentBalance = snap.exists() ? Number(snap.data().balanceUSD || 0) : 0;
       if (newBalance !== currentBalance) {
         await setDoc(userRef, { balanceUSD: newBalance }, { merge: true });
         setBalanceUSD(newBalance);
-        setUser(prev => prev ? { ...prev, balanceUSD: newBalance } : null);
       }
     } catch (syncError) {
     }
@@ -340,14 +342,18 @@ export const AuthProvider = ({ children }) => {
       if (!auth.currentUser) throw new Error('Not authenticated');
       const BDT_PER_USD = 130;
       const amountUSD = currency === 'BDT' ? Number(amount) / BDT_PER_USD : Number(amount);
+      // Round to 8 decimal places to avoid tiny binary float artifacts, but store/display with 2 decimals
+      const roundedAmountUSD = Math.round((amountUSD + Number.EPSILON) * 1e8) / 1e8;
       if (isNaN(amountUSD) || amountUSD <= 0) throw new Error('Invalid amount');
 
       const userRef = doc(db, "users", auth.currentUser.uid);
       const snap = await getDoc(userRef);
       const current = snap.exists() ? Number(snap.data().balanceUSD || 0) : 0;
-      const updated = current + amountUSD;
-      await setDoc(userRef, { balanceUSD: updated }, { merge: true });
-      setBalanceUSD(updated);
+      const updated = current + roundedAmountUSD;
+      // Round stored Firebase USD to 8 decimals for safety, but UI shows 2 decimals via CurrencyContext
+      const storeVal = Math.round((updated + Number.EPSILON) * 1e8) / 1e8;
+      await setDoc(userRef, { balanceUSD: storeVal }, { merge: true });
+      setBalanceUSD(storeVal);
 
       // Sync balance to MongoDB
       try {

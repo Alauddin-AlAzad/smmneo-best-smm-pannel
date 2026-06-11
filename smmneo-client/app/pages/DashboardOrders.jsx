@@ -33,12 +33,18 @@ function formatLink(link) {
 
 
 function normalizeStatus(status) {
-  const normalized = String(status || 'pending').trim().toLowerCase().replace(/-/g, '_');
-  if (normalized === 'complete' || normalized === 'done' || normalized === 'success' || normalized === 'delivered') {
+  const normalized = String(status || 'pending')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  if (normalized === 'complete' || normalized === 'completed' || normalized === 'done' || normalized === 'success' || normalized === 'delivered') {
     return 'completed';
   }
   if (normalized === 'cancelled') return 'canceled';
-  return normalized;
+  return normalized || 'pending';
 }
 
 function formatStatusLabel(status) {
@@ -57,15 +63,38 @@ function formatStatusLabel(status) {
 }
 
 function getOrderStatusValue(order) {
-  const rawStatus =
+  const localStatus = normalizeStatus(order?.status || 'pending');
+  const providerStatus = normalizeStatus(
     order?.providerStatus ||
     order?.providerResponse?.status ||
     order?.providerResponse?.state ||
     order?.providerResponse?.status_text ||
     order?.providerResponse?.state_text ||
+    order?.providerResponse?.order_status ||
+    order?.providerResponse?.orderStatus ||
+    order?.providerResponse?.statusMessage ||
+    order?.providerResponse?.status_message ||
+    order?.providerResponse?.status_name ||
+    order?.providerResponse?.statusName ||
+    order?.providerResponse?.current_status ||
+    order?.providerResponse?.currentStatus ||
+    order?.providerResponse?.order_status_text ||
+    order?.providerResponse?.status_description ||
     order?.status ||
-    'pending';
-  return normalizeStatus(rawStatus);
+    'pending'
+  );
+
+  const finalLocalState = ['completed', 'canceled', 'refunded', 'failed', 'partial'];
+  if (finalLocalState.includes(localStatus)) {
+    return localStatus;
+  }
+
+  const finalProviderState = ['completed', 'canceled', 'refunded', 'failed', 'partial'];
+  if (finalProviderState.includes(providerStatus)) {
+    return providerStatus;
+  }
+
+  return providerStatus || localStatus || 'pending';
 }
 
 function getStatusClass(status) {
@@ -492,7 +521,7 @@ export default function DashboardOrders() {
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto md:overflow-visible touch-pan-x">
+          <div className="smooth-scroll scrollbar-hide horizontal-scroll-table md:overflow-visible">
             <table className="min-w-max md:w-full table-auto text-xs">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">

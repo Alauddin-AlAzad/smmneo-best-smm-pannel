@@ -3,7 +3,7 @@ const csrf = require('csurf');
 const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
 const { ObjectId } = require('mongodb');
-const { getDB } = require('./db');
+const { getDB } = require('./dbServerless');
 const adminAuth = require('./adminAuth');
 
 const router = express.Router();
@@ -145,7 +145,8 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
     res.cookie(adminAuth.getRefreshCookieName(), refreshToken, adminAuth.getRefreshCookieOptions());
     res.json({ success: true, data: { accessToken, admin: buildAdminResponse(admin) } });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to login' });
+    console.error('Admin login error:', err?.message || err, 'body:', req.body);
+    return res.status(500).json({ success: false, error: 'Failed to login', message: err?.message || 'Unknown server error' });
   }
 });
 

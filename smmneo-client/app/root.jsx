@@ -26,6 +26,18 @@ export function links() {
       rel: "stylesheet",
       href: "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap",
     },
+    // Preload Font Awesome icons for faster icon rendering (Telegram, dark mode icons)
+    { rel: "preconnect", href: "https://cdnjs.cloudflare.com" },
+    {
+      rel: "preload",
+      as: "style",
+      href: "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css",
+    },
+    {
+      rel: "stylesheet",
+      href: "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css",
+      crossOrigin: "anonymous",
+    },
   ];
 }
 

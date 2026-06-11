@@ -59,7 +59,8 @@ const UserEditModal = ({ userId, userName, onClose, onSuccess }) => {
       const payload = {
         displayName: displayName.trim(),
         status: status.toLowerCase(),
-      };      await updateAdminUser(userId, payload);
+      };
+      await updateAdminUser(userId, payload);
 
       setSuccessMessage('User information updated successfully!');
       
@@ -76,7 +77,8 @@ const UserEditModal = ({ userId, userName, onClose, onSuccess }) => {
 
       // Clear message after 2 seconds
       setTimeout(() => setSuccessMessage(''), 2000);
-    } catch (err) {      setError(err.message || 'Failed to update user');
+    } catch (err) {
+      setError(err.message || 'Failed to update user');
     } finally {
       setSaving(false);
     }
@@ -167,7 +169,7 @@ const UserEditModal = ({ userId, userName, onClose, onSuccess }) => {
                   <div>
                     <h3 className="text-2xl font-bold">{user.name}</h3>
                     <p className="text-violet-100 text-sm mt-1">{user.email}</p>
-                    <p className="text-violet-100 text-sm">Current Balance: ${user.balanceUSD.toFixed(2)}</p>
+                    <p className="text-violet-100 text-sm">Current Balance: ${user.balanceUSD.toFixed(8)}</p>
                   </div>
                 </div>
               </div>

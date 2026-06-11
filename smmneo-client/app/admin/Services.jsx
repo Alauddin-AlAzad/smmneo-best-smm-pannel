@@ -4,6 +4,7 @@ import useProviderServices from '../hooks/useProviderServices.js';
 import LoadingSpinner from '../components/admin/common/LoadingSpinner.jsx';
 import ErrorState from '../components/admin/common/ErrorState.jsx';
 import toast from 'react-hot-toast';
+import { getApiUrl, API_ENDPOINTS } from '../config/api.js';
 
 const AdminServices = () => {
   const PAGE_SIZE = 50;
@@ -21,6 +22,7 @@ const AdminServices = () => {
   const [activeTab, setActiveTab] = useState('services');
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [providersError, setProvidersError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [allLoadedServices, setAllLoadedServices] = useState([]);
   const sentinelRef = useRef(null);
@@ -79,8 +81,8 @@ const AdminServices = () => {
         setProviderSettings(data.data.provider);
         setProfitPercentage(String(data.data.provider.defaultProfitPercentage ?? data.data.provider.profitPercentage ?? 0));
       } else {
+        setProviderSettings(null);
         setProfitPercentage('0');
-        toast.error('No provider configured. Please set provider settings first.');
       }
     } catch (error) {
       toast.error('Failed to load provider settings');
@@ -92,12 +94,16 @@ const AdminServices = () => {
   const fetchProviders = async () => {
     try {
       setLoadingProviders(true);
+      setProvidersError(null);
       const response = await fetch(getApiUrl(API_ENDPOINTS.PROVIDERS));
       const data = await response.json();
       if (data && data.success && Array.isArray(data.data)) {
         setProviders(data.data);
+      } else if (data && !data.success) {
+        setProvidersError(data.error || 'Unable to load providers');
       }
     } catch (error) {
+      setProvidersError(error.message || 'Failed to load providers');
       toast.error('Failed to load providers');
     } finally {
       setLoadingProviders(false);
@@ -210,10 +216,17 @@ const AdminServices = () => {
     return () => observer.disconnect();
   }, [allLoadedServices.length, handleLoadMore, loading, pagination.hasMore]);
 
-  // Load global provider settings from backend
+  // Load global provider settings from backend + poll for changes
   useEffect(() => {
     fetchProviderSettings();
     fetchProviders();
+
+    // Poll for provider changes every 5 seconds
+    const pollInterval = setInterval(() => {
+      fetchProviderSettings();
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   useEffect(() => {
@@ -222,31 +235,17 @@ const AdminServices = () => {
     }
 
     if (!providers.length) {
-      setSelectedProviderId('');
-      if (providerSettings) {
-        setProviderSettings(null);
-        setAllLoadedServices([]);
-      }
       return;
     }
 
     const matchedProviderByCurrent =
-      providers.find((provider) => provider._id === providerSettings?._id) ||
+      providers.find((provider) => String(provider._id) === String(providerSettings?._id)) ||
       providers.find((provider) => provider.apiUrl === providerSettings?.apiUrl);
 
     if (matchedProviderByCurrent) {
-      const hasValidSelection = providers.some((provider) => provider._id === selectedProviderId);
+      const hasValidSelection = providers.some((provider) => String(provider._id) === String(selectedProviderId));
       if (!selectedProviderId || !hasValidSelection) {
         setSelectedProviderId(matchedProviderByCurrent._id);
-      }
-      return;
-    }
-
-    // Keep provider from global settings if it was set from General Settings,
-    // even when it's not in the saved providers list.
-    if (providerSettings?.apiUrl) {
-      if (!selectedProviderId) {
-        setSelectedProviderId(providers[0]?._id || '');
       }
       return;
     }
@@ -399,6 +398,9 @@ const AdminServices = () => {
                 <p className="text-sm text-slate-600">Choose a saved provider and make it active for services syncing.</p>
               </div>
               {loadingProviders && <span className="text-xs font-medium text-slate-500">Loading providers...</span>}
+              {providersError && !loadingProviders && (
+                <span className="text-xs font-medium text-red-600">{providersError}</span>
+              )}
             </div>
 
             {providers.length > 0 ? (

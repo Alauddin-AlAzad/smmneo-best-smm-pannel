@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getDB } = require('../db');
+const { getDB } = require('../dbServerless');
 
 // POST /api/payments/submit
 router.post('/submit', async (req, res) => {
@@ -11,14 +11,32 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
+    // Validate amount has max 8 decimal places
+    const amountStr = String(amount);
+    const decimalIndex = amountStr.indexOf('.');
+    if (decimalIndex !== -1) {
+      const decimalPlaces = amountStr.length - decimalIndex - 1;
+      if (decimalPlaces > 8) {
+        return res.status(400).json({ success: false, error: 'Amount must contain maximum 8 decimal places' });
+      }
+    }
+
     // Prevent duplicate transaction IDs
     const col = db.collection('paymentRequests');
     const existing = await col.findOne({ transactionId: { $regex: `^${transactionId}$`, $options: 'i' } });
     if (existing) return res.status(409).json({ success: false, error: 'Duplicate transaction ID' });
 
     const doc = {
-      method, senderNumber, transactionId, amount: Number(amount), userId: userId || null,
-      status: 'pending', createdAt: new Date(), updatedAt: new Date(), adminNotes: '',
+      method,
+      senderNumber,
+      transactionId,
+      // store original amount in USD as string/number for auditing; do NOT rely on this for arithmetic
+      amount: Number(amount),
+      userId: userId || null,
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      adminNotes: '',
     };
 
     // Save screenshot if provided (base64) to uploads/payments
@@ -67,7 +85,8 @@ router.get('/numbers', async (req, res) => {
     const docs = await col.find({}).sort({ createdAt: -1 }).toArray();
     res.json({ success: true, data: docs });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to list' });
+    console.error('Error in GET /api/payments/numbers:', err && err.stack ? err.stack : err);
+    res.status(500).json({ success: false, error: 'Failed to list', detail: err && err.message ? err.message : '' });
   }
 });
 
@@ -83,7 +102,8 @@ router.post('/numbers', async (req, res) => {
     const result = await col.updateOne({ key }, { $set: { key, label: label || key, number, logo: logo || '', meta: meta || {}, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } }, { upsert: true });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to save' });
+    console.error('Error in POST /api/payments/numbers:', err && err.stack ? err.stack : err);
+    res.status(500).json({ success: false, error: 'Failed to save', detail: err && err.message ? err.message : '' });
   }
 });
 
@@ -106,7 +126,9 @@ router.post('/:id/verify', async (req, res) => {
       const users = db.collection('users');
       const amt = Number(doc.amount) || 0;
       if (amt) {
-        await users.updateOne({ _id: doc.userId }, { $inc: { balanceUSD: amt }, $set: { updatedAt: new Date() } });
+        // Convert USD amount to micro-USD integer and increment MongoDB stored balance
+        const micro = Number(require('decimal.js')(amt).mul(new (require('decimal.js'))('1000000')).toFixed(0));
+        await users.updateOne({ _id: doc.userId }, { $inc: { balanceUSD: micro }, $set: { updatedAt: new Date() } });
       }
     }
 
@@ -154,10 +176,16 @@ router.post('/payment-settings', async (req, res) => {
       nagad: incoming.nagad || {},
       rocket: incoming.rocket || {},
     };
-    await col.updateOne({ _id: 'global' }, { $set: { methods, updatedAt: new Date() } }, { upsert: true });
+    // Basic validation: ensure methods are objects
+    if (typeof methods !== 'object') {
+      return res.status(400).json({ success: false, error: 'Invalid payload' });
+    }
+    const update = { $set: { methods, updatedAt: new Date() } };
+    await col.updateOne({ _id: 'global' }, update, { upsert: true });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to save' });
+    console.error('Error in POST /api/payments/payment-settings:', err && err.stack ? err.stack : err);
+    res.status(500).json({ success: false, error: 'Failed to save', detail: err && err.message ? err.message : '' });
   }
 });
 

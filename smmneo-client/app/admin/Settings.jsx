@@ -53,7 +53,8 @@ const ModalContent = ({
   formData, setFormData, 
   isFetchingPaymentMethods, paymentMethods, setPaymentMethods,
   loadingProviders, providers, setProviders, setShowProviderForm, setEditingProviderId,
-  activeServiceTab, setActiveServiceTab 
+  activeServiceTab, setActiveServiceTab,
+  activeProviderId, onActivateProvider,
 }) => {
   const modalContentMap = {
     general: (
@@ -152,7 +153,19 @@ const ModalContent = ({
                   </span>
                 </div>
               </div>
-              <div className="flex gap-2 mt-3">
+              <div className="flex flex-wrap gap-2 mt-3">
+                {String(provider._id) === String(activeProviderId) ? (
+                  <span className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded bg-violet-100 text-violet-700 font-semibold">
+                    ✅ Active provider
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => onActivateProvider(provider)}
+                    className="text-xs px-2 py-1 rounded bg-violet-100 text-violet-700 hover:bg-violet-200 transition"
+                  >
+                    Activate
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setEditingProviderId(provider._id);
@@ -409,6 +422,7 @@ const AdminSettings = () => {
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [savingGeneral, setSavingGeneral] = useState(false);
   const [generalForm, setGeneralForm] = useState({ siteName: '', siteUrl: '', adminEmail: '', maintenanceMode: false });
+  const [activeProviderId, setActiveProviderId] = useState(null);
   const [formData, setFormData] = useState({ apiUrl: '', apiKey: '', disableSync: false, loginUsername: '', loginPassword: '' });
   const [paymentMethods, setPaymentMethods] = useState({
     bkash: { number: '', label: 'bKash' },
@@ -423,7 +437,15 @@ const AdminSettings = () => {
     fetchAdminSettings()
       .then((data) => {
         if (data && data.provider) {
-          setFormData((f) => ({ ...f, apiUrl: data.provider.apiUrl || '', apiKey: data.provider.apiKey || '' }));
+          setActiveProviderId(data.provider._id || null);
+          setFormData((f) => ({
+            ...f,
+            apiUrl: data.provider.apiUrl || '',
+            apiKey: data.provider.apiKey || '',
+            disableSync: data.provider.disableSync || false,
+            loginUsername: data.provider.loginUsername || '',
+            loginPassword: data.provider.loginPassword || '',
+          }));
         }
         if (data && data.general) {
           setGeneralForm({
@@ -497,6 +519,24 @@ const AdminSettings = () => {
     }
   };
 
+  const handleActivateProvider = async (provider) => {
+    try {
+      await saveAdminSettings({ provider });
+      setActiveProviderId(provider._id || null);
+      setFormData((f) => ({
+        ...f,
+        apiUrl: provider.apiUrl || '',
+        apiKey: provider.apiKey || '',
+        disableSync: provider.disableSync || false,
+        loginUsername: provider.loginUsername || '',
+        loginPassword: provider.loginPassword || '',
+      }));
+      toast.success(`Activated provider ${provider.name || provider.apiUrl}`);
+    } catch (error) {
+      toast.error(error.message || 'Failed to activate provider');
+    }
+  };
+
   const handleSaveProvider = async () => {
     if (!formData.apiUrl || !formData.apiKey) {
       toast.error('API URL and API Key are required');
@@ -524,17 +564,36 @@ const AdminSettings = () => {
         throw new Error(data?.message || 'Failed to save provider');
       }
 
+      const savedProvider = data.data;
+      const providerWasActive = Boolean(activeProviderId && editingProviderId && String(editingProviderId) === String(activeProviderId));
+      const shouldActivateProvider = !activeProviderId || providerWasActive;
+
       if (editingProviderId) {
-        setProviders((prev) => prev.map((provider) => String(provider._id) === String(editingProviderId) ? data.data : provider));
+        setProviders((prev) => prev.map((provider) => String(provider._id) === String(editingProviderId) ? savedProvider : provider));
         toast.success('Provider updated successfully');
       } else {
-        setProviders((prev) => [data.data, ...prev]);
+        setProviders((prev) => [savedProvider, ...prev]);
         toast.success('Provider added successfully');
+      }
+
+      if (shouldActivateProvider) {
+        await saveAdminSettings({ provider: savedProvider });
+        setActiveProviderId(savedProvider._id || null);
+        setFormData((f) => ({
+          ...f,
+          apiUrl: savedProvider.apiUrl || '',
+          apiKey: savedProvider.apiKey || '',
+          disableSync: savedProvider.disableSync || false,
+          loginUsername: savedProvider.loginUsername || '',
+          loginPassword: savedProvider.loginPassword || '',
+        }));
       }
 
       setShowProviderForm(false);
       setEditingProviderId(null);
-      setFormData({ apiUrl: '', apiKey: '', disableSync: false, loginUsername: '', loginPassword: '' });
+      if (!shouldActivateProvider) {
+        setFormData({ apiUrl: '', apiKey: '', disableSync: false, loginUsername: '', loginPassword: '' });
+      }
     } catch (error) {
       toast.error(error.message || 'Failed to save provider');
     }
@@ -584,6 +643,8 @@ const AdminSettings = () => {
                   setEditingProviderId={setEditingProviderId}
                   activeServiceTab={activeServiceTab}
                   setActiveServiceTab={setActiveServiceTab}
+                  activeProviderId={activeProviderId}
+                  onActivateProvider={handleActivateProvider}
                 />
               </div>
 

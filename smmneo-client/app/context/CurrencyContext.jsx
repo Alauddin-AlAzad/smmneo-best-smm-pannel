@@ -23,21 +23,20 @@ export const CurrencyProvider = ({ children }) => {
     return Number(amountUSD) || 0;
   };
 
+  const round = (num, decimals = 2) => {
+    const n = Number(num) || 0;
+    const factor = Math.pow(10, decimals);
+    return Math.round((n + Number.EPSILON) * factor) / factor;
+  };
+
   const formatUsd = (value) => {
     const amount = Number(value) || 0;
-    const absAmount = Math.abs(amount);
-    if (absAmount >= 0.01) {
-      return amount.toFixed(2);
-    }
-    if (absAmount > 0) {
-      return amount.toFixed(8).replace(/\.0+$|([0-9]*\.[0-9]*?)0+$/, '$1');
-    }
-    return amount.toFixed(2);
+    return amount.toFixed(8);
   };
 
   const formatCurrency = (amountUSD, curr) => {
     const val = convertToCurrency(amountUSD, curr);
-    if (curr === 'BDT') return `৳${val.toFixed(2)}`;
+    if (curr === 'BDT') return `৳${val.toFixed(8)}`;
     return `$${formatUsd(val)}`;
   };
 

@@ -4,6 +4,28 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const admin = require('firebase-admin');
 const { ObjectId } = require('mongodb');
+const Decimal = require('decimal.js');
+
+// Money handling configuration
+// We'll store balances in micro-USD (1 USD = 1_000_000 micro-USD) to preserve sub-cent precision
+const MICROUSD_PER_USD = new Decimal('1000000');
+const BDT_PER_USD = new Decimal('130');
+
+function toMicroUsdFromUsdDecimal(decimalUsd) {
+  return new Decimal(decimalUsd).mul(MICROUSD_PER_USD).toFixed(0); // integer string
+}
+
+function fromMicroUsdToUsdNumber(microUsd) {
+  return new Decimal(microUsd).div(MICROUSD_PER_USD).toNumber();
+}
+
+function parseToDecimal(value) {
+  try {
+    return new Decimal(value);
+  } catch (e) {
+    return new Decimal(0);
+  }
+}
 const { connectDB, getDB } = require('./dbServerless');
 const { authMiddleware, isAllowedOrigin } = require('./firebaseAuthMiddleware');
 const { getFirebaseAdmin } = require('./firebaseAdmin');
@@ -14,14 +36,14 @@ const { seedSuperAdmin } = require('./adminAuth');
 
 async function updateFirestoreUserBalance(firebaseUid, usdAmount) {
   const { firestore } = getFirebaseAdmin();
-  if (!firestore || !firebaseUid || typeof usdAmount !== 'number' || usdAmount <= 0) {
-    return;
-  }
+  if (!firestore || !firebaseUid) return;
   try {
+    // Firestore user profiles store balance in USD (float) for client display.
+    // Increment by the USD amount (allows small fractions like 0.000001).
     const userRef = firestore.doc(`users/${firebaseUid}`);
     await userRef.set(
       {
-        balanceUSD: admin.firestore.FieldValue.increment(usdAmount),
+        balanceUSD: admin.firestore.FieldValue.increment(Number(usdAmount)),
         updatedAt: new Date(),
       },
       { merge: true }
@@ -56,6 +78,13 @@ const PROVIDER_SERVICES_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const ADMIN_LIST_LIMIT = 50;
 
+// Additional explicit CORS origins (custom domains requested)
+const ADDITIONAL_CORS_ORIGINS = [
+  'https://azad-develop.web.app',
+  'https://azad-develop.firebaseapp.com',
+  'https://www.smmsecure.shop',
+  'https://smmsecure.shop',
+];
 function toNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -87,18 +116,21 @@ function pickFirstString(...values) {
 }
 
 function formatOrderAmount(value, currency = 'USD') {
-  const amount = Number(value) || 0;
+  // value expected in micro-USD (integer) or a numeric USD amount; normalize with Decimal
+  const dec = parseToDecimal(value);
   if (String(currency).toUpperCase() === 'BDT') {
-    return `BDT ${amount.toFixed(2)}`;
+    const bdt = dec.mul(BDT_PER_USD).div(MICROUSD_PER_USD).toNumber();
+    return `BDT ${bdt.toFixed(2)}`;
   }
-  const absAmount = Math.abs(amount);
-  if (absAmount >= 0.01) {
-    return `$${amount.toFixed(2)}`;
+  const usd = dec.div(MICROUSD_PER_USD);
+  const absUsd = usd.abs();
+  if (absUsd.gte(new Decimal('0.01'))) {
+    return `$${usd.toFixed(2)}`;
   }
-  if (absAmount > 0) {
-    return `$${amount.toFixed(8).replace(/\.0+$|([0-9]*\.[0-9]*?)0+$/, '$1')}`;
+  if (absUsd.gt(new Decimal(0))) {
+    return `$${usd.toFixed(8).replace(/\.0+$|([0-9]*\.[0-9]*?)0+$/, '$1')}`;
   }
-  return `$${amount.toFixed(2)}`;
+  return `$${usd.toFixed(2)}`;
 }
 
 function createKeywordQuery(keyword) {
@@ -110,7 +142,7 @@ function createKeywordQuery(keyword) {
 
 function normalizeStatus(value, fallback = 'pending') {
   if (!value) return fallback;
-  const status = String(value).trim().toLowerCase();
+  const status = String(value).trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/_+/g, '_');
   if (!status) return fallback;
   return status;
 }
@@ -132,18 +164,88 @@ function normalizeStatus(value, fallback = 'pending') {
 function mapProviderStatusToLocal(providerStatus) {
   if (!providerStatus) return 'pending';
   
-  const normalized = String(providerStatus).trim().toLowerCase();
-  
+  const normalized = String(providerStatus)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return 'pending';
+
   // Provider Status → Local Status mappings
   if (normalized === 'pending') return 'pending';
-  if (normalized === 'in progress' || normalized === 'inprogress') return 'processing';
-  if (normalized === 'processing') return 'processing';
-  if (normalized === 'completed' || normalized === 'complete' || normalized === 'done') return 'completed';
+  if (normalized === 'in progress' || normalized === 'inprogress' || normalized === 'processing') return 'processing';
+  if (normalized === 'completed' || normalized === 'complete' || normalized === 'done' || normalized === 'success' || normalized === 'delivered') return 'completed';
   if (normalized === 'partial' || normalized === 'partially') return 'partial';
   if (normalized === 'canceled' || normalized === 'cancelled' || normalized === 'cancel') return 'cancelled';
   
   // Fallback: return normalized status if no mapping found
-  return normalized;
+  return normalized.replace(/\s+/g, '_');
+}
+
+function buildOrderIdQueryValues(orderId) {
+  const values = new Set();
+  if (orderId === undefined || orderId === null) return [];
+  const raw = String(orderId).trim();
+  if (raw) values.add(raw);
+  const numeric = Number(raw);
+  if (!Number.isNaN(numeric) && String(numeric) === raw) {
+    values.add(numeric);
+  }
+  // Also include a digits-only variant (some providers return mixed strings like "id:12345" or include dashes)
+  const digitsOnly = raw.replace(/\D+/g, '');
+  if (digitsOnly && digitsOnly !== raw) values.add(digitsOnly);
+  // Include a lower-cased version for safer matching
+  const lower = raw.toLowerCase();
+  if (lower && lower !== raw) values.add(lower);
+  return Array.from(values);
+}
+
+// Try to find a provider order id inside a nested provider response object
+function extractProviderOrderIdFromResponse(obj) {
+  if (!obj) return null;
+  const tried = new Set();
+
+  function walker(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string' || typeof value === 'number') {
+      const s = String(value).trim();
+      if (!s) return null;
+      // If looks like a numeric id (4+ digits) or short alpha-numeric token, accept it
+      if (/\d{4,}/.test(s) || /^[a-z0-9_-]{3,}$/i.test(s)) return s;
+      return null;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = walker(item);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof value === 'object') {
+      // Check common keys first
+      const keys = ['order', 'id', 'order_id', 'orderId', 'externalId', 'request_id', 'job', 'request_id', 'requestId'];
+      for (const k of keys) {
+        if (Object.prototype.hasOwnProperty.call(value, k)) {
+          const v = value[k];
+          const found = walker(v);
+          if (found) return found;
+        }
+      }
+
+      // Walk other keys
+      for (const [k, v] of Object.entries(value)) {
+        if (tried.has(k)) continue;
+        tried.add(k);
+        const found = walker(v);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  return walker(obj);
 }
 
 function normalizeUsername(value) {
@@ -170,13 +272,14 @@ function mapUserRow(doc) {
   const name = displayName || nameFromEmail || 'User';
   const status = normalizeStatus(doc.status, doc.disabled ? 'inactive' : 'active');
 
-  return {
+    return {
     id: doc._id?.toString?.() || doc.id || name,
     name,
     email,
     status,
     joinDate: formatDateValue(doc.createdAt || doc.joinDate || doc.updatedAt),
-    balanceUSD: parseFloat(doc.balanceUSD || 0),
+    // convert stored micro-USD integer to USD number for display
+    balanceUSD: fromMicroUsdToUsdNumber(doc.balanceUSD || 0),
     totalOrders: parseInt(doc.totalOrders || 0),
     totalSpent: parseFloat(doc.totalSpent || 0),
   };
@@ -239,7 +342,23 @@ function mapUserOrderRow(doc) {
     cancelable: Boolean(doc.providerCancelable || doc.cancelable || doc.cancellable || false),
     refillable: Boolean(doc.providerRefillable || doc.refillable || false),
     providerStatus: pickFirstString(
-      (providerResponse && (providerResponse.status || providerResponse.state || providerResponse.status_text || providerResponse.state_text)) || doc.providerStatus || doc.provider_state || doc.provider_state_text || ''
+      doc.providerStatus || doc.provider_state || doc.provider_state_text ||
+      (providerResponse && (
+        providerResponse.status ||
+        providerResponse.state ||
+        providerResponse.status_text ||
+        providerResponse.state_text ||
+        providerResponse.order_status ||
+        providerResponse.orderStatus ||
+        providerResponse.statusMessage ||
+        providerResponse.status_message ||
+        providerResponse.status_name ||
+        providerResponse.statusName ||
+        providerResponse.current_status ||
+        providerResponse.currentStatus ||
+        providerResponse.order_status_text ||
+        providerResponse.status_description
+      )) || ''
     ),
   };
 }
@@ -465,6 +584,51 @@ async function fetchAdminOverviewData(db) {
 }
 
 // ---------------- Provider orders sync ----------------
+function normalizeProviderOrdersResponse(json) {
+  if (!json || typeof json !== 'object') {
+    return [];
+  }
+
+  const normalizeKeyedObject = (obj) => {
+    const entries = Object.entries(obj).filter(
+      ([, value]) => value && typeof value === 'object' && !Array.isArray(value)
+    );
+    if (!entries.length) return [];
+
+    const normalized = entries.map(([key, value]) => ({ order: key, id: key, ...value }));
+    const looksLikeOrderMap = normalized.every((item) =>
+      item.status !== undefined || item.start_count !== undefined || item.startCount !== undefined || item.charge !== undefined || item.error !== undefined
+    );
+    if (!looksLikeOrderMap) return [];
+    return normalized;
+  };
+
+  if (Array.isArray(json)) return json;
+
+  if (json.data && typeof json.data === 'object' && !Array.isArray(json.data)) {
+    const normalizedData = normalizeKeyedObject(json.data);
+    if (normalizedData.length) return normalizedData;
+    return [json.data];
+  }
+
+  if (json.orders && typeof json.orders === 'object' && !Array.isArray(json.orders)) {
+    const normalizedOrders = normalizeKeyedObject(json.orders);
+    if (normalizedOrders.length) return normalizedOrders;
+    return [json.orders];
+  }
+
+  if (json.order && typeof json.order === 'object' && !Array.isArray(json.order)) {
+    const normalizedOrder = normalizeKeyedObject(json.order);
+    if (normalizedOrder.length) return normalizedOrder;
+    return [json.order];
+  }
+
+  const normalizedTopLevel = normalizeKeyedObject(json);
+  if (normalizedTopLevel.length) return normalizedTopLevel;
+
+  return [json];
+}
+
 async function fetchProviderOrdersFromApi(provider, orderId = null) {
   if (!provider || !provider.apiUrl) return [];
 
@@ -476,11 +640,11 @@ async function fetchProviderOrdersFromApi(provider, orderId = null) {
     if (orderId) {
       params.append('action', 'status');
       params.append('order', String(orderId));
+      params.append('order_id', String(orderId));
       const resp = await fetch(provider.apiUrl, { method: 'POST', body: params, headers: { Accept: 'application/json' } });
       if (resp.ok) {
         const json = await resp.json().catch(async () => { const t = await resp.text().catch(() => ''); return { rawText: t }; });
-        // provider returned single order status object
-        return [json];
+        return normalizeProviderOrdersResponse(json);
       }
       // fall through to try 'orders' action below
     }
@@ -489,25 +653,17 @@ async function fetchProviderOrdersFromApi(provider, orderId = null) {
     const paramsList = new URLSearchParams();
     if (provider.apiKey) paramsList.append('key', provider.apiKey);
     paramsList.append('action', 'orders');
-    if (orderId) paramsList.append('order', String(orderId));
+    if (orderId) {
+      paramsList.append('order', String(orderId));
+      paramsList.append('order_id', String(orderId));
+    }
 
     const resp = await fetch(provider.apiUrl, { method: 'POST', body: paramsList, headers: { Accept: 'application/json' } });
     if (!resp.ok) {
       return [];
     }
     const json = await resp.json();
-    // provider may return array or object with data
-    if (Array.isArray(json)) return json;
-    if (Array.isArray(json.data)) return json.data;
-    if (Array.isArray(json.orders)) return json.orders;
-    // Some providers wrap single order in object
-    if (json && typeof json === 'object' && (json.order || json.id || json.data)) {
-      // try to normalize into an array
-      const maybe = json.order || json.data || json;
-      if (Array.isArray(maybe)) return maybe;
-      return [maybe];
-    }
-    return [];
+    return normalizeProviderOrdersResponse(json);
   } catch (err) {
     return [];
   }
@@ -517,19 +673,48 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
   const ordersCol = db.collection('orders');
   let updated = 0;
   let inserted = 0;
+  let skipped = 0;
+
+  console.log(`[BULK-SYNC] Starting sync for ${providerOrders.length} provider orders from provider: ${provider.name || provider.apiUrl}`);
 
   for (const prow of providerOrders) {
     try {
       // provider order identifier candidates
-      const providerOrderId = (prow.id || prow.order || prow.order_id || prow.orderId || prow.externalId || prow.key || '').toString();
-      if (!providerOrderId) continue;
+      const providerOrderId = pickFirstString(
+        prow.id?.toString?.(),
+        prow.order?.toString?.(),
+        prow.order_id?.toString?.(),
+        prow.orderId?.toString?.(),
+        prow.externalId?.toString?.(),
+        prow.key?.toString?.(),
+        prow.request_id?.toString?.(),
+        prow.job?.toString?.(),
+        prow.job_id?.toString?.(),
+        prow.orderNumber?.toString?.(),
+        prow.order_no?.toString?.(),
+        prow.orderNumber?.toString?.()
+      );
+      if (!providerOrderId) {
+        skipped++;
+        continue;
+      }
 
-      // search by provider id fields or matching external id
+      const queryValues = buildOrderIdQueryValues(providerOrderId);
+      if (!queryValues.length) {
+        skipped++;
+        continue;
+      }
+
+      // search by provider id fields, local order id, or providerResponse nested id
       const query = {
         $or: [
-          { orderId: providerOrderId },
-          { externalId: providerOrderId },
-          { providerOrderId: providerOrderId },
+          { orderId: { $in: queryValues } },
+          { externalId: { $in: queryValues } },
+          { providerOrderId: { $in: queryValues } },
+          { 'providerResponse.order': { $in: queryValues } },
+          { 'providerResponse.id': { $in: queryValues } },
+          { 'providerResponse.order_id': { $in: queryValues } },
+          { 'providerResponse.externalId': { $in: queryValues } },
         ],
       };
 
@@ -537,10 +722,37 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
       const statusBeforeUpdate = existing?.status || 'N/A';
       
       // Extract raw provider status
-      const rawProviderStatus = prow.status || prow.state || prow.status_text || prow.state_text || 'pending';
+      const rawProviderStatus =
+        prow.status ||
+        prow.state ||
+        prow.status_text ||
+        prow.state_text ||
+        prow.order_status ||
+        prow.orderStatus ||
+        prow.statusMessage ||
+        prow.status_message ||
+        prow.status_name ||
+        prow.statusName ||
+        prow.current_status ||
+        prow.currentStatus ||
+        prow.order_status_text ||
+        prow.status_description ||
+        'pending';
       
       // Map provider status to local system status
       const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
+
+      console.log(`[BULK-SYNC] Order ${providerOrderId}: Raw="${rawProviderStatus}" → Mapped="${mappedStatus}" | Found=${!!existing} | LocalStatus=${statusBeforeUpdate}`);
+
+      // PROTECTION: Never downgrade from final statuses
+      const finalStatuses = ['completed', 'canceled', 'partial', 'failed'];
+      const shouldUpdate = !existing || !finalStatuses.includes(String(existing.status || '').toLowerCase());
+      
+      if (existing && !shouldUpdate) {
+        console.log(`[BULK-SYNC] ⚠️  Skipping update - order already in final status "${existing.status}"`);
+        skipped++;
+        continue;
+      }
 
       const mapped = {
         orderId: providerOrderId,
@@ -558,9 +770,32 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
       };
 
       if (existing) {
-        // update fields that may have changed
-        await ordersCol.updateOne({ _id: existing._id }, { $set: mapped });
-        updated++;
+        // update fields that may have changed - ALWAYS UPDATE REGARDLESS OF CURRENT STATUS
+        console.log(`[BULK-SYNC] 💾 Updating existing order: ${providerOrderId}`);
+        console.log(`[BULK-SYNC] - Current status in DB: ${existing.status}`);
+        console.log(`[BULK-SYNC] - Current providerStatus in DB: ${existing.providerStatus}`);
+        console.log(`[BULK-SYNC] - New status to set: ${mappedStatus}`);
+        console.log(`[BULK-SYNC] - New providerStatus to set: ${String(rawProviderStatus)}`);
+        
+        const result = await ordersCol.updateOne({ _id: existing._id }, { $set: mapped });
+        
+        console.log(`[BULK-SYNC] - MongoDB Result:`, {
+          acknowledged: result.acknowledged,
+          matchedCount: result.matchedCount,
+          modifiedCount: result.modifiedCount,
+          upsertedId: result.upsertedId,
+        });
+        
+        if (result.modifiedCount > 0) {
+          console.log(`[BULK-SYNC] ✓ Updated ${providerOrderId}: status ${statusBeforeUpdate} → ${mappedStatus}`);
+          
+          // Verify by re-reading
+          const verify = await ordersCol.findOne({ _id: existing._id });
+          console.log(`[BULK-SYNC] ✓ Verification: DB now shows status="${verify.status}", providerStatus="${verify.providerStatus}"`);
+          updated++;
+        } else {
+          console.log(`[BULK-SYNC] ⚠️  Update returned 0 modified (matched=${result.matchedCount})`);
+        }
       } else {
         const toInsert = {
           ...mapped,
@@ -568,24 +803,35 @@ async function reconcileProviderOrders(db, provider, providerOrders) {
           syncedFromProvider: true,
         };
         await ordersCol.insertOne(toInsert);
+        console.log(`[BULK-SYNC] ✓ Inserted new order ${providerOrderId} with status ${mappedStatus}`);
         inserted++;
       }
     } catch (err) {
-      // Error reconciling provider order
+      console.error(`[BULK-SYNC] ✗ Error reconciling order:`, err.message);
     }
   }
 
+  console.log(`[BULK-SYNC] Completed: updated=${updated}, inserted=${inserted}, skipped=${skipped}, total=${providerOrders.length}`);
   return { inserted, updated, total: providerOrders.length };
 }
 
 async function runSyncForProvider(provider) {
   try {
     const db = getDB();
-    if (!provider || provider.disableSync) return { skipped: true };
+    if (!provider || provider.disableSync) {
+      console.log(`[PROVIDER-SYNC] Skipped: provider disabled or not configured`);
+      return { skipped: true };
+    }
+    
+    console.log(`[PROVIDER-SYNC] Starting sync for provider: ${provider.name || provider.apiUrl}`);
     const providerOrders = await fetchProviderOrdersFromApi(provider);
+    console.log(`[PROVIDER-SYNC] Fetched ${providerOrders?.length || 0} orders from provider API`);
+    
     const result = await reconcileProviderOrders(db, provider, providerOrders || []);
+    console.log(`[PROVIDER-SYNC] Sync complete: ${JSON.stringify(result)}`);
     return result;
   } catch (err) {
+    console.error(`[PROVIDER-SYNC] ✗ Error:`, err.message);
     return { error: String(err) };
   }
 }
@@ -621,18 +867,44 @@ async function pushOrderToProvider(provider, orderDoc) {
     if (orderDoc.link) params.append('link', String(orderDoc.link));
     if (orderDoc.callbackUrl) params.append('callback', String(orderDoc.callbackUrl));
 
-    const resp = await fetch(provider.apiUrl, { method: 'POST', body: params, headers: { Accept: 'application/json' } });
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      return { error: `Provider request failed: ${resp.status}`, raw: text };
+    // Try with retries and exponential backoff
+    let attempt = 0;
+    const maxAttempts = Number(provider.pushMaxAttempts || 3);
+    let lastError = null;
+    let json = null;
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        const resp = await fetch(provider.apiUrl, { method: 'POST', body: params, headers: { Accept: 'application/json' } });
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => '');
+          lastError = `Provider request failed: ${resp.status}`;
+          // treat non-ok as retryable for a few attempts
+          if (attempt >= maxAttempts) return { error: lastError, raw: text };
+        } else {
+          json = await resp.json().catch(async () => {
+            const t = await resp.text().catch(() => '');
+            return { rawText: t };
+          });
+          break;
+        }
+      } catch (err) {
+        lastError = String(err?.message || err);
+        if (attempt >= maxAttempts) return { error: lastError };
+      }
+      // backoff
+      const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 15000);
+      await new Promise((r) => setTimeout(r, backoffMs));
     }
-    const json = await resp.json().catch(async () => {
-      const t = await resp.text().catch(() => '');
-      return { rawText: t };
-    });
 
-    // Try to extract provider order id from known keys
-    const providerOrderId = (json && (json.order || json.id || json.order_id || json.job || json.request_id || json.externalId)) || (json && json.data && (json.data.order || json.data.id)) || null;
+    // Try to extract provider order id from known keys or by recursive extraction
+    let providerOrderId = null;
+    if (json) {
+      providerOrderId = (json.order || json.id || json.order_id || json.job || json.request_id || json.externalId) || (json.data && (json.data.order || json.data.id)) || null;
+      if (!providerOrderId) {
+        providerOrderId = extractProviderOrderIdFromResponse(json) || null;
+      }
+    }
     const status = (json && (json.status || json.state || json.status_text || json.state_text)) || 'processing';
     const providerCancelable = Boolean(json && (json.cancel || json.cancellable || json.cancelable || json.can_cancel));
     const providerRefillable = Boolean(json && (json.refill || json.refillable || json.can_refill));
@@ -757,6 +1029,178 @@ app.post('/api/provider/sync-orders', async (req, res) => {
   }
 });
 
+// TEST ENDPOINT: POST /api/test/trace-order-sync/:orderId - Debug complete sync flow for an order
+app.post('/api/test/trace-order-sync/:orderId', async (req, res) => {
+  try {
+    const db = getDB();
+    const { orderId } = req.params;
+    
+    console.log(`\n${'='.repeat(100)}`);
+    console.log(`[TEST-TRACE] 🔍 STARTING COMPLETE SYNC TRACE FOR ORDER: ${orderId}`);
+    console.log(`[TEST-TRACE] Timestamp: ${new Date().toISOString()}`);
+    
+    // Step 1: Find local order in database
+    console.log(`\n[TEST-TRACE] STEP 1: Find local order in database...`);
+    const localOrder = await db.collection('orders').findOne({ 
+      $or: [
+        { orderId: orderId },
+        { providerOrderId: orderId },
+        { externalId: orderId }
+      ]
+    });
+    
+    if (!localOrder) {
+      console.log(`[TEST-TRACE] ✗ Order NOT found in local database`);
+      return res.status(404).json({ success: false, error: 'Order not found', orderId });
+    }
+    
+    console.log(`[TEST-TRACE] ✓ Found local order:`);
+    console.log(`[TEST-TRACE] - _id: ${localOrder._id}`);
+    console.log(`[TEST-TRACE] - orderId: ${localOrder.orderId}`);
+    console.log(`[TEST-TRACE] - providerOrderId: ${localOrder.providerOrderId}`);
+    console.log(`[TEST-TRACE] - status: ${localOrder.status}`);
+    console.log(`[TEST-TRACE] - providerStatus: ${localOrder.providerStatus}`);
+    console.log(`[TEST-TRACE] - createdAt: ${localOrder.createdAt}`);
+    console.log(`[TEST-TRACE] - updatedAt: ${localOrder.updatedAt}`);
+    
+    // Step 2: Get provider configuration
+    console.log(`\n[TEST-TRACE] STEP 2: Get provider configuration...`);
+    const settings = await db.collection('settings').findOne({ _id: 'global' });
+    const provider = settings?.provider;
+    
+    if (!provider) {
+      console.log(`[TEST-TRACE] ✗ No provider configured`);
+      return res.status(400).json({ success: false, error: 'No provider configured' });
+    }
+    console.log(`[TEST-TRACE] ✓ Provider configured: ${provider.name || provider.apiUrl}`);
+    
+    // Step 3: Call provider API to get order status
+    console.log(`\n[TEST-TRACE] STEP 3: Call provider API for order status...`);
+    const providerOrderIdToUse = localOrder.providerOrderId || orderId;
+    console.log(`[TEST-TRACE] - Calling with providerOrderId: ${providerOrderIdToUse}`);
+    
+    const providerOrders = await fetchProviderOrdersFromApi(provider, providerOrderIdToUse);
+    
+    if (!providerOrders || providerOrders.length === 0) {
+      console.log(`[TEST-TRACE] ✗ Provider API returned no orders`);
+      return res.status(404).json({ success: false, error: 'Provider returned no orders', orderId });
+    }
+    
+    const providerOrder = providerOrders[0];
+    console.log(`[TEST-TRACE] ✓ Provider API Response (full JSON):`);
+    console.log(`[TEST-TRACE]`, JSON.stringify(providerOrder, null, 2));
+    
+    // Step 4: Extract status from provider response
+    console.log(`\n[TEST-TRACE] STEP 4: Extract status from provider response...`);
+    const rawProviderStatus = 
+      providerOrder.status ||
+      providerOrder.state ||
+      providerOrder.status_text ||
+      providerOrder.state_text ||
+      providerOrder.order_status ||
+      providerOrder.orderStatus ||
+      providerOrder.statusMessage ||
+      providerOrder.status_message ||
+      providerOrder.status_name ||
+      providerOrder.statusName ||
+      providerOrder.current_status ||
+      providerOrder.currentStatus ||
+      providerOrder.order_status_text ||
+      providerOrder.status_description ||
+      'processing';
+    
+    console.log(`[TEST-TRACE] ✓ Raw provider status: "${rawProviderStatus}"`);
+    
+    // Step 5: Map to local status
+    console.log(`\n[TEST-TRACE] STEP 5: Map provider status to local status...`);
+    const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
+    console.log(`[TEST-TRACE] ✓ Mapped local status: "${mappedStatus}"`);
+    
+    // Step 6: Check if status changed
+    console.log(`\n[TEST-TRACE] STEP 6: Check if status changed...`);
+    const statusChanged = localOrder.status !== mappedStatus;
+    const providerStatusChanged = localOrder.providerStatus !== rawProviderStatus;
+    console.log(`[TEST-TRACE] - Local status changed: ${statusChanged} (${localOrder.status} → ${mappedStatus})`);
+    console.log(`[TEST-TRACE] - Provider status changed: ${providerStatusChanged} (${localOrder.providerStatus} → ${rawProviderStatus})`);
+    
+    // Step 7: Update database
+    console.log(`\n[TEST-TRACE] STEP 7: Update database...`);
+    if (!statusChanged && !providerStatusChanged) {
+      console.log(`[TEST-TRACE] ⓘ No changes needed - statuses match`);
+    } else {
+      const updateFields = {
+        status: mappedStatus,
+        providerStatus: String(rawProviderStatus),
+        updatedAt: new Date(),
+        providerResponse: providerOrder,
+      };
+      
+      console.log(`[TEST-TRACE] - Executing updateOne with fields:`, Object.keys(updateFields));
+      const result = await db.collection('orders').updateOne({ _id: localOrder._id }, { $set: updateFields });
+      
+      console.log(`[TEST-TRACE] ✓ MongoDB Result:`, {
+        acknowledged: result.acknowledged,
+        matchedCount: result.matchedCount,
+        modifiedCount: result.modifiedCount,
+      });
+      
+      if (result.modifiedCount > 0) {
+        console.log(`[TEST-TRACE] ✅ Database updated successfully`);
+        
+        // Verify by re-reading
+        const verifiedOrder = await db.collection('orders').findOne({ _id: localOrder._id });
+        console.log(`[TEST-TRACE] ✓ Verification (re-read from DB):`);
+        console.log(`[TEST-TRACE] - status: ${verifiedOrder.status}`);
+        console.log(`[TEST-TRACE] - providerStatus: ${verifiedOrder.providerStatus}`);
+        console.log(`[TEST-TRACE] - updatedAt: ${verifiedOrder.updatedAt}`);
+      } else {
+        console.log(`[TEST-TRACE] ⚠️  Database update had no effect`);
+      }
+    }
+    
+    // Step 8: Verify response will be correct
+    console.log(`\n[TEST-TRACE] STEP 8: Verify client will receive correct status...`);
+    const clientResponse = mapUserOrderRow(await db.collection('orders').findOne({ _id: localOrder._id }));
+    console.log(`[TEST-TRACE] ✓ Client will see:`);
+    console.log(`[TEST-TRACE] - status: ${clientResponse.status}`);
+    console.log(`[TEST-TRACE] - providerStatus: ${clientResponse.providerStatus}`);
+    
+    console.log(`\n[TEST-TRACE] ✅ TRACE COMPLETE`);
+    console.log(`${'='.repeat(100)}\n`);
+    
+    res.json({ 
+      success: true, 
+      data: {
+        localOrder: {
+          id: localOrder._id,
+          orderId: localOrder.orderId,
+          providerOrderId: localOrder.providerOrderId,
+          status: localOrder.status,
+          providerStatus: localOrder.providerStatus,
+        },
+        providerStatus: rawProviderStatus,
+        mappedStatus,
+        changes: {
+          statusChanged,
+          providerStatusChanged,
+        },
+        clientWillSee: {
+          status: clientResponse.status,
+          providerStatus: clientResponse.providerStatus,
+        }
+      }
+    });
+  } catch (err) {
+    console.error(`[TEST-TRACE] ❌ Exception:`, err.message);
+    console.error(`[TEST-TRACE] Stack:`, err.stack);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Test trace failed',
+      message: err.message,
+    });
+  }
+});
+
 // GET /api/provider/order/:providerOrderId - fetch a single provider order and update local record
 app.get('/api/provider/order/:providerOrderId', async (req, res) => {
   // Set CORS headers for all responses
@@ -767,64 +1211,162 @@ app.get('/api/provider/order/:providerOrderId', async (req, res) => {
   try {
     const db = getDB();
     const { providerOrderId } = req.params;
-    if (!providerOrderId) return res.status(400).json({ success: false, error: 'Missing providerOrderId' });
+    
+    console.log(`\n${'='.repeat(80)}`);
+    console.log(`[PROVIDER-SYNC-TRACE] 🔍 START: Refreshing order ${providerOrderId}`);
+    console.log(`[PROVIDER-SYNC-TRACE] Timestamp: ${new Date().toISOString()}`);
+    
+    if (!providerOrderId) {
+      console.log(`[PROVIDER-SYNC-TRACE] ✗ Missing providerOrderId parameter`);
+      return res.status(400).json({ success: false, error: 'Missing providerOrderId' });
+    }
 
     const settings = await db.collection('settings').findOne({ _id: 'global' });
     const provider = settings?.provider;
-    if (!provider) return res.status(400).json({ success: false, error: 'No provider configured' });
+    if (!provider) {
+      console.log(`[PROVIDER-SYNC-TRACE] ✗ No provider configured`);
+      return res.status(400).json({ success: false, error: 'No provider configured' });
+    }
 
+    console.log(`[PROVIDER-SYNC-TRACE] 📡 Calling provider API...`);
+    console.log(`[PROVIDER-SYNC-TRACE] Provider URL: ${provider.apiUrl}`);
+    
     const providerOrders = await fetchProviderOrdersFromApi(provider, providerOrderId);
+    console.log(`[PROVIDER-SYNC-TRACE] 📡 Provider API Response:`, JSON.stringify(providerOrders, null, 2));
+    
     if (!providerOrders || providerOrders.length === 0) {
+      console.log(`[PROVIDER-SYNC-TRACE] ⚠️  Provider returned no orders`);
       return res.status(404).json({ success: false, error: 'Provider order not found' });
     }
 
     const prow = providerOrders[0];
+    console.log(`[PROVIDER-SYNC-TRACE] 📝 Provider Order Object:`, JSON.stringify(prow, null, 2));
+    
     // Provider 'status' responses sometimes omit the id; fall back to the requested param
     const providerOrderIdNormalized = (prow.id || prow.order || prow.order_id || prow.orderId || prow.externalId || prow.key || providerOrderId || '').toString();
+    console.log(`[PROVIDER-SYNC-TRACE] 🔑 Normalized Provider Order ID: "${providerOrderIdNormalized}"`);
+    
+    const orderIdQueryValues = buildOrderIdQueryValues(providerOrderIdNormalized);
+    console.log(`[PROVIDER-SYNC-TRACE] 🔍 Query Values for matching: ${JSON.stringify(orderIdQueryValues)}`);
 
     // Find local order by providerOrderId - try multiple field combinations
-    let order = await db.collection('orders').findOne({ 
-      $or: [
-        { providerOrderId: providerOrderIdNormalized }, 
-        { externalId: providerOrderIdNormalized }, 
-        { orderId: providerOrderIdNormalized },
-        { providerOrderId: providerOrderId },
-        { externalId: providerOrderId },
-        { orderId: providerOrderId }
-      ] 
-    });
+    let order = null;
+    let foundVia = null;
+    
+    if (orderIdQueryValues.length) {
+      console.log(`[PROVIDER-SYNC-TRACE] 🔎 Querying orders collection...`);
+      
+      order = await db.collection('orders').findOne({
+        $or: [
+          { providerOrderId: { $in: orderIdQueryValues } },
+          { externalId: { $in: orderIdQueryValues } },
+          { orderId: { $in: orderIdQueryValues } },
+          { 'providerResponse.order': { $in: orderIdQueryValues } },
+          { 'providerResponse.id': { $in: orderIdQueryValues } },
+          { 'providerResponse.order_id': { $in: orderIdQueryValues } },
+          { 'providerResponse.externalId': { $in: orderIdQueryValues } },
+        ],
+      });
+      
+      if (order) {
+        console.log(`[PROVIDER-SYNC-TRACE] ✓ Found local order via standard query`);
+        foundVia = 'standard_query';
+      }
+    }
     
     // If not found, try finding by provider's contact/email from the response if available
     if (!order && (prow.email || prow.contact)) {
       const email = prow.email || prow.contact;
-      order = await db.collection('orders').findOne({ 
+      console.log(`[PROVIDER-SYNC-TRACE] 🔎 Trying email/contact fallback: ${email}`);
+      order = await db.collection('orders').findOne({
         email: { $regex: `^${email}$`, $options: 'i' },
-        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Last 24 hours
       });
+      if (order) {
+        console.log(`[PROVIDER-SYNC-TRACE] ✓ Found local order via email/contact`);
+        foundVia = 'email_fallback';
+      }
     }
-    
-    // If still not found, try finding recent orders by any field that might match
-    if (!order) {
-      // Try to find ANY order that was recently synced with this provider
+
+    // If still not found, try finding recent orders by any providerResponse field that might match
+    if (!order && orderIdQueryValues.length) {
+      console.log(`[PROVIDER-SYNC-TRACE] 🔎 Trying providerResponse field fallback`);
       order = await db.collection('orders').findOne({
         $or: [
-          { 'providerResponse.order': providerOrderIdNormalized },
-          { 'providerResponse.order': Number(providerOrderIdNormalized) },
-          { 'providerResponse.id': providerOrderIdNormalized },
-          { 'providerResponse.id': Number(providerOrderIdNormalized) }
-        ]
+          { 'providerResponse.order': { $in: orderIdQueryValues } },
+          { 'providerResponse.id': { $in: orderIdQueryValues } },
+          { 'providerResponse.order_id': { $in: orderIdQueryValues } },
+          { 'providerResponse.externalId': { $in: orderIdQueryValues } },
+          { orderId: { $in: orderIdQueryValues } },
+          { providerOrderId: { $in: orderIdQueryValues } },
+          { externalId: { $in: orderIdQueryValues } },
+        ],
       });
+      if (order) {
+        console.log(`[PROVIDER-SYNC-TRACE] ✓ Found local order via providerResponse fallback`);
+        foundVia = 'provider_response_fallback';
+      }
+    }
+
+    if (!order) {
+      console.log(`[PROVIDER-SYNC-TRACE] ⚠️  ✗ NO LOCAL ORDER FOUND`);
+      console.log(`[PROVIDER-SYNC-TRACE] Attempted queries:`, {
+        orderIdQueryValues,
+        email: prow.email || prow.contact,
+      });
+    } else {
+      console.log(`[PROVIDER-SYNC-TRACE] 📦 Found Local Order:`);
+      console.log(`[PROVIDER-SYNC-TRACE] - _id: ${order._id}`);
+      console.log(`[PROVIDER-SYNC-TRACE] - orderId: ${order.orderId}`);
+      console.log(`[PROVIDER-SYNC-TRACE] - providerOrderId: ${order.providerOrderId}`);
+      console.log(`[PROVIDER-SYNC-TRACE] - externalId: ${order.externalId}`);
+      console.log(`[PROVIDER-SYNC-TRACE] - status: ${order.status}`);
+      console.log(`[PROVIDER-SYNC-TRACE] - providerStatus: ${order.providerStatus}`);
+      console.log(`[PROVIDER-SYNC-TRACE] - Found via: ${foundVia}`);
     }
 
     // Extract raw provider status
-    const rawProviderStatus = prow.status || prow.state || prow.status_text || prow.state_text || 'processing';
+    const rawProviderStatus =
+      prow.status ||
+      prow.state ||
+      prow.status_text ||
+      prow.state_text ||
+      prow.order_status ||
+      prow.orderStatus ||
+      prow.statusMessage ||
+      prow.status_message ||
+      prow.status_name ||
+      prow.statusName ||
+      prow.current_status ||
+      prow.currentStatus ||
+      prow.order_status_text ||
+      prow.status_description ||
+      'processing';
+    
+    console.log(`[PROVIDER-SYNC-TRACE] 📊 Status Mapping:`);
+    console.log(`[PROVIDER-SYNC-TRACE] - Raw provider status: "${rawProviderStatus}"`);
     
     // Map provider status to local system status
     const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
-    
-    // Log single order status sync
-    if (order) {
-    } else {
+    console.log(`[PROVIDER-SYNC-TRACE] - Mapped to local status: "${mappedStatus}"`);
+
+    // PROTECTION: Never downgrade from final statuses
+    const finalStatuses = ['completed', 'canceled', 'partial', 'failed'];
+    if (order && finalStatuses.includes(String(order.status || '').toLowerCase())) {
+      console.log(`[PROVIDER-SYNC-TRACE] ⚠️  PROTECTED: Order already in final status "${order.status}"`);
+      console.log(`[PROVIDER-SYNC-TRACE] ⚠️  NOT updating to "${mappedStatus}" to avoid downgrade`);
+      
+      res.json({ 
+        success: true, 
+        data: { 
+          providerOrder: prow, 
+          updatedLocal: false, 
+          mappedStatus, 
+          rawProviderStatus,
+          reason: 'Order in final status - update blocked for protection'
+        } 
+      });
+      return;
     }
 
     const updateFields = {
@@ -842,13 +1384,45 @@ app.get('/api/provider/order/:providerOrderId', async (req, res) => {
       updatedAt: new Date(),
     };
 
+    console.log(`[PROVIDER-SYNC-TRACE] 🔄 Update Fields:`, JSON.stringify(updateFields, null, 2));
+
     if (order) {
-      await db.collection('orders').updateOne({ _id: order._id }, { $set: updateFields });
+      console.log(`[PROVIDER-SYNC-TRACE] 💾 Executing MongoDB updateOne...`);
+      console.log(`[PROVIDER-SYNC-TRACE] - Query: { _id: ${order._id} }`);
+      console.log(`[PROVIDER-SYNC-TRACE] - Update fields count: ${Object.keys(updateFields).length}`);
+      
+      const result = await db.collection('orders').updateOne({ _id: order._id }, { $set: updateFields });
+      
+      console.log(`[PROVIDER-SYNC-TRACE] 💾 MongoDB Result:`, {
+        acknowledged: result.acknowledged,
+        matchedCount: result.matchedCount,
+        modifiedCount: result.modifiedCount,
+      });
+      
+      if (result.modifiedCount > 0) {
+        console.log(`[PROVIDER-SYNC-TRACE] ✅ SUCCESS: Order updated in database`);
+        
+        // Verify the update by re-reading the order
+        const verifyOrder = await db.collection('orders').findOne({ _id: order._id });
+        console.log(`[PROVIDER-SYNC-TRACE] ✓ Verification - re-read order:`);
+        console.log(`[PROVIDER-SYNC-TRACE] - status: ${verifyOrder.status}`);
+        console.log(`[PROVIDER-SYNC-TRACE] - providerStatus: ${verifyOrder.providerStatus}`);
+        console.log(`[PROVIDER-SYNC-TRACE] - updatedAt: ${verifyOrder.updatedAt}`);
+      } else {
+        console.log(`[PROVIDER-SYNC-TRACE] ⚠️  MongoDB matched but did NOT modify (${result.matchedCount} matched, ${result.modifiedCount} modified)`);
+      }
+    } else {
+      console.log(`[PROVIDER-SYNC-TRACE] ⚠️  Skipping update - no local order found`);
     }
 
-    res.json({ success: true, data: { providerOrder: prow, updatedLocal: Boolean(order) } });
+    console.log(`[PROVIDER-SYNC-TRACE] 🏁 END: Response sent`);
+    console.log(`${'='.repeat(80)}\n`);
+    
+    res.json({ success: true, data: { providerOrder: prow, updatedLocal: Boolean(order), mappedStatus, rawProviderStatus } });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to fetch provider order' });
+    console.error(`[PROVIDER-SYNC-TRACE] ❌ EXCEPTION:`, err.message);
+    console.error(`[PROVIDER-SYNC-TRACE] Stack:`, err.stack);
+    res.status(500).json({ success: false, error: 'Failed to fetch provider order', message: err.message });
   }
 });
 
@@ -856,13 +1430,21 @@ app.get('/api/provider/order/:providerOrderId', async (req, res) => {
 const SYNC_INTERVAL_MS = Number(process.env.PROVIDER_SYNC_INTERVAL_MS || 5 * 60 * 1000);
 setInterval(async () => {
   try {
+    console.log(`[BACKGROUND-SYNC] ⏱️ Starting scheduled provider sync at ${new Date().toISOString()}`);
     const db = getDB();
     const providers = await db.collection('providers').find({}).toArray();
+    console.log(`[BACKGROUND-SYNC] Found ${providers.length} provider(s) to sync`);
+    
     for (const prov of providers) {
-      if (prov.disableSync) continue;
+      if (prov.disableSync) {
+        console.log(`[BACKGROUND-SYNC] Skipping disabled provider: ${prov.name || prov.apiUrl}`);
+        continue;
+      }
       await runSyncForProvider(prov);
     }
+    console.log(`[BACKGROUND-SYNC] ✓ Scheduled sync complete at ${new Date().toISOString()}`);
   } catch (err) {
+    console.error(`[BACKGROUND-SYNC] ✗ Error during scheduled sync:`, err.message);
   }
 }, SYNC_INTERVAL_MS);
 
@@ -876,14 +1458,18 @@ app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || isAllowedOrigin(origin)) {
+    // Allow requests with no origin (e.g. server-to-server or curl)
+    if (!origin) return callback(null, true);
+    // Allow if origin is in the allowed origins set or in our additional list
+    if (isAllowedOrigin(origin) || ADDITIONAL_CORS_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
     return callback(new Error('CORS origin not allowed'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Auth-Token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Auth-Token', 'X-CSRF-Token'],
+  exposedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   preflightContinue: false,
   optionsSuccessStatus: 204,
 }));
@@ -1119,10 +1705,13 @@ app.post('/api/add-fund-request/:id/verify', async (req, res) => {
           userQuery = { _id: new ObjectId(doc.user_id) };
         } else if (typeof doc.user_id === 'string') {
           userQuery = { firebaseUid: doc.user_id };
+          // update Firestore with USD amount (not micro) so client-side Firestore remains in USD
           await updateFirestoreUserBalance(doc.user_id, usdAmount);
         }
 
-        await users.updateOne(userQuery, { $inc: { balanceUSD: usdAmount }, $set: { updatedAt: new Date() } });
+        // convert to micro-USD integer for MongoDB storage
+        const microInc = toMicroUsdFromUsdDecimal(new Decimal(usdAmount));
+        await users.updateOne(userQuery, { $inc: { balanceUSD: Number(microInc) }, $set: { updatedAt: new Date() } });
       }
     }
 
@@ -1156,17 +1745,19 @@ app.post('/api/users/sync-balance', async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found in MongoDB' });
     }
 
-    // Update balance
+    // Convert incoming USD number to micro-USD integer for storage
+    const micro = toMicroUsdFromUsdDecimal(new Decimal(balanceUSD));
+
+    // Update balance stored as micro-USD integer
     await usersCol.updateOne(
       { _id: user._id },
-      { $set: { balanceUSD: Math.max(0, balanceUSD), updatedAt: new Date() } }
+      { $set: { balanceUSD: micro, updatedAt: new Date() } }
     );
-
 
     res.json({
       success: true,
       message: 'Balance synced successfully',
-      data: { balanceUSD },
+      data: { balanceUSD: fromMicroUsdToUsdNumber(micro) },
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to sync balance' });
@@ -1411,7 +2002,8 @@ app.get('/api/admin/users/:userId', async (req, res) => {
         email: user.email,
         username: user.username,
         status: user.status || 'active',
-        balanceUSD: Number(user.balanceUSD || 0),
+        // balanceUSD stored as micro-USD integer in DB; convert to USD number for API
+        balanceUSD: fromMicroUsdToUsdNumber(user.balanceUSD || 0),
         totalOrders: orders.length,
         totalSpent: totalSpent,
         joinDate: formatDateValue(user.createdAt),
@@ -1435,7 +2027,11 @@ app.put('/api/admin/users/:userId', async (req, res) => {
     const { balanceUSD, status, displayName } = req.body;
 
     const updatePayload = {};
-    if (typeof balanceUSD === 'number') updatePayload.balanceUSD = balanceUSD;
+    if (typeof balanceUSD === 'number') {
+      // Convert incoming USD to micro-USD for storage
+      const microUsd = toMicroUsdFromUsdDecimal(new Decimal(balanceUSD));
+      updatePayload.balanceUSD = Number(microUsd);
+    }
     
     // Validate and set status
     if (status) {
@@ -1494,13 +2090,16 @@ app.post('/api/admin/users/:userId/balance', async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
+    // Convert incoming USD amount to micro-USD for calculation
+    const amountMicroUsd = Number(toMicroUsdFromUsdDecimal(new Decimal(amount)));
     let newBalance;
+    
     if (action === 'set') {
-      newBalance = amount;
+      newBalance = amountMicroUsd;
     } else if (action === 'add') {
-      newBalance = Number(user.balanceUSD || 0) + amount;
+      newBalance = Number(user.balanceUSD || 0) + amountMicroUsd;
     } else if (action === 'subtract') {
-      newBalance = Number(user.balanceUSD || 0) - amount;
+      newBalance = Number(user.balanceUSD || 0) - amountMicroUsd;
     } else {
       return res.status(400).json({ success: false, error: 'Invalid action' });
     }
@@ -1516,7 +2115,7 @@ app.post('/api/admin/users/:userId/balance', async (req, res) => {
       message: `Balance ${action}`,
       data: {
         userId: userId,
-        newBalance: updatedUser.balanceUSD,
+        newBalance: fromMicroUsdToUsdNumber(updatedUser.balanceUSD || 0),
       },
     });
   } catch (err) {
@@ -1557,10 +2156,13 @@ app.get('/api/test/sync-user-by-id/:userId/:balanceUSD', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid balance' });
     }
 
-    // Update user by ID
+    // Convert incoming USD number to micro-USD integer for storage
+    const micro = toMicroUsdFromUsdDecimal(new Decimal(balance));
+
+    // Update user by ID (store micro-USD integer)
     const result = await db.collection('users').updateOne(
       { _id: new ObjectId(userId) },
-      { $set: { balanceUSD: balance, updatedAt: new Date() } }
+      { $set: { balanceUSD: micro, updatedAt: new Date() } }
     );
 
     if (result.matchedCount === 0) {
@@ -1577,8 +2179,8 @@ app.get('/api/test/sync-user-by-id/:userId/:balanceUSD', async (req, res) => {
         userId: userId,
         username: updatedUser.username,
         email: updatedUser.email,
-        oldBalance: updatedUser.balanceUSD,
-        newBalance: balance,
+        oldBalance: fromMicroUsdToUsdNumber(updatedUser.balanceUSD || 0),
+        newBalance: fromMicroUsdToUsdNumber(micro),
       },
     });
   } catch (err) {
@@ -1660,7 +2262,7 @@ app.get('/api/users/me', authMiddleware, async (req, res) => {
         email: user.email,
         username: user.username,
         displayName: user.displayName || user.name || user.username,
-        balanceUSD: Number(user.balanceUSD || 0),
+        balanceUSD: fromMicroUsdToUsdNumber(user.balanceUSD || 0),
         status: user.status || 'active',
       },
     });
@@ -1691,21 +2293,21 @@ app.get('/api/test/sync-user-balance/:username/:balanceUSD', async (req, res) =>
     }
 
     const oldBalance = user.balanceUSD;
+    const micro = toMicroUsdFromUsdDecimal(new Decimal(balance));
 
-    // Update balance
+    // Update balance (store micro-USD)
     await db.collection('users').updateOne(
       { _id: user._id },
-      { $set: { balanceUSD: balance, updatedAt: new Date() } }
+      { $set: { balanceUSD: micro, updatedAt: new Date() } }
     );
-
 
     res.json({
       success: true,
       message: 'Balance synced successfully',
       data: {
         username: username,
-        oldBalance: oldBalance,
-        newBalance: balance,
+        oldBalance: fromMicroUsdToUsdNumber(oldBalance || 0),
+        newBalance: fromMicroUsdToUsdNumber(micro),
         userId: user._id.toString(),
         email: user.email,
       },
@@ -1981,6 +2583,20 @@ app.post('/api/orders/create', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid charge amount' });
     }
 
+    // Validate charge amount has max 8 decimal places
+    const chargeStr = String(chargeAmount);
+    const decimalIndex = chargeStr.indexOf('.');
+    if (decimalIndex !== -1) {
+      const decimalPlaces = chargeStr.length - decimalIndex - 1;
+      if (decimalPlaces > 8) {
+        return res.status(400).json({ success: false, error: 'Charge amount must contain maximum 8 decimal places' });
+      }
+    }
+
+    // Normalize charge to USD for internal accounting. Clients may send BDT when currency === 'BDT'.
+    const conversionRate = 130; // 1 USD = 130 BDT
+    const usdCharge = (String(currency || '').toUpperCase() === 'BDT') ? (chargeNumeric / conversionRate) : chargeNumeric;
+
     // Find user by email
     const usersCollection = db.collection('users');
     const user = await usersCollection.findOne({ email: { $regex: `^${email}$`, $options: 'i' } });
@@ -1989,16 +2605,22 @@ app.post('/api/orders/create', async (req, res) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // Check if user has sufficient balance
-    const currentBalance = parseFloat(user.balanceUSD || 0);
-    if (currentBalance < chargeNumeric) {
+    // Atomically deduct balance from user first to avoid race conditions
+    const microCharge = Number(toMicroUsdFromUsdDecimal(new Decimal(usdCharge)));
+    const userFilter = { _id: user._id, balanceUSD: { $gte: microCharge } };
+    const userUpdate = {
+      $inc: { balanceUSD: -microCharge, totalOrders: 1, totalSpent: usdCharge },
+      $set: { updatedAt: new Date() },
+    };
+
+    const findRes = await usersCollection.findOneAndUpdate(userFilter, userUpdate, { returnDocument: 'after' });
+    if (!findRes.value) {
       return res.status(400).json({ success: false, error: 'Insufficient balance' });
     }
 
-    // Create order
+    // Create order after successful deduction
     const ordersCollection = db.collection('orders');
     const orderId = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
-    
     const newOrder = {
       orderId: orderId,
       customer: email,
@@ -2007,28 +2629,29 @@ app.post('/api/orders/create', async (req, res) => {
       providerServiceId: providerServiceId || null,
       link: link,
       quantity: parseInt(quantity),
+      // store both original amount and normalized USD amount for clarity
       amount: chargeNumeric,
+      amountUSD: usdCharge,
       currency: currency || 'USD',
       status: 'pending',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    const orderResult = await ordersCollection.insertOne(newOrder);
-
-    // Deduct balance from user
-    const newBalance = currentBalance - chargeNumeric;
-    await usersCollection.updateOne(
-      { _id: user._id },
-      {
-        $set: { balanceUSD: newBalance },
-        $inc: { 
-          totalOrders: 1,
-          totalSpent: chargeNumeric,
-        },
+    let orderResult;
+    try {
+      orderResult = await ordersCollection.insertOne(newOrder);
+    } catch (insertErr) {
+      // Attempt to refund the user if order creation fails
+      try {
+        await usersCollection.updateOne({ _id: user._id }, { $inc: { balanceUSD: microCharge, totalOrders: -1, totalSpent: -usdCharge }, $set: { updatedAt: new Date() } });
+      } catch (refundErr) {
+        console.error('Failed to refund after order insert failure', { refundErr: refundErr && refundErr.message, userId: user._id, amountUSD: usdCharge });
       }
-    );
-
+      console.error('Order insert failed', insertErr && insertErr.stack ? insertErr.stack : insertErr);
+      return res.status(500).json({ success: false, error: 'Failed to create order' });
+    }
+    const newBalance = fromMicroUsdToUsdNumber(findRes.value.balanceUSD || 0);
     res.json({
       success: true,
       data: {
@@ -2044,6 +2667,7 @@ app.post('/api/orders/create', async (req, res) => {
         const settings = await db.collection('settings').findOne({ _id: 'global' });
         const provider = settings?.provider;
         if (!provider || provider.disableSync) {
+          console.log(`[ORDER-CREATE-PUSH] Skipped: provider not configured or sync disabled`);
           return;
         }
 
@@ -2051,23 +2675,47 @@ app.post('/api/orders/create', async (req, res) => {
         const pushResult = await pushOrderToProvider(provider, createdOrder);
 
         if (pushResult && pushResult.providerOrderId) {
+              const rawProviderStatus = pushResult.status || 'processing';
+              const mappedStatus = mapProviderStatusToLocal(rawProviderStatus);
+              console.log(`[ORDER-CREATE-PUSH] ✅ SUCCESS: Order ${pushResult.providerOrderId}: Raw="${rawProviderStatus}" → Mapped="${mappedStatus}"`);
+              
               const updateFields = {
                 providerOrderId: pushResult.providerOrderId,
                 externalId: pushResult.providerOrderId,
                 providerResponse: pushResult.raw,
-                status: pushResult.status || 'processing',
+                status: mappedStatus,
+                providerStatus: String(rawProviderStatus),  // ← FIX: Initialize providerStatus here
                 updatedAt: new Date(),
               };
               if (typeof pushResult.providerCancelable !== 'undefined') updateFields.providerCancelable = Boolean(pushResult.providerCancelable);
               if (typeof pushResult.providerRefillable !== 'undefined') updateFields.providerRefillable = Boolean(pushResult.providerRefillable);
-              await ordersCollection.updateOne({ _id: createdOrder._id }, { $set: updateFields });
+              
+              const result = await ordersCollection.updateOne({ _id: createdOrder._id }, { $set: updateFields });
+              console.log(`[ORDER-CREATE-PUSH] Update result: matched=${result.matchedCount}, modified=${result.modifiedCount}`);
         } else if (pushResult && pushResult.error) {
+              console.error(`[ORDER-CREATE-PUSH] ⚠️  ERROR: ${pushResult.error}`);
               const updateFields = { providerError: pushResult.error, providerResponse: pushResult.raw || null, updatedAt: new Date() };
               if (typeof pushResult.providerCancelable !== 'undefined') updateFields.providerCancelable = Boolean(pushResult.providerCancelable);
               if (typeof pushResult.providerRefillable !== 'undefined') updateFields.providerRefillable = Boolean(pushResult.providerRefillable);
               await ordersCollection.updateOne({ _id: createdOrder._id }, { $set: updateFields });
+        } else {
+              console.warn(`[ORDER-CREATE-PUSH] ⚠️  WARNING: No providerOrderId extracted from response:`, JSON.stringify(pushResult));
+              // Still save what we got
+              const updateFields = { providerResponse: pushResult?.raw || null, providerError: 'No provider order ID found in response', updatedAt: new Date() };
+              await ordersCollection.updateOne({ _id: createdOrder._id }, { $set: updateFields });
         }
       } catch (err) {
+        console.error(`[ORDER-CREATE-PUSH] ❌ EXCEPTION during background push:`, err?.message);
+        console.error(`[ORDER-CREATE-PUSH] Stack:`, err?.stack);
+        // Attempt to record the error in the order for visibility
+        try {
+          const createdOrder = await ordersCollection.findOne({ _id: orderResult.insertedId });
+          if (createdOrder) {
+            await ordersCollection.updateOne({ _id: createdOrder._id }, { $set: { providerError: `Background push exception: ${err?.message}`, updatedAt: new Date() } });
+          }
+        } catch (logErr) {
+          console.error(`[ORDER-CREATE-PUSH] Failed to log error to order:`, logErr?.message);
+        }
       }
     })();
   } catch (err) {

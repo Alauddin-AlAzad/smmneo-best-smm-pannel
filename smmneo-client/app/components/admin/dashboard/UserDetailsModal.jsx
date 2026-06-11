@@ -101,7 +101,7 @@ const UserDetailsModal = ({ userId, userName, onClose }) => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                   <p className="text-sm text-slate-600 font-medium">Balance</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-2">${user.balanceUSD.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-2">${user.balanceUSD.toFixed(8)}</p>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                   <p className="text-sm text-slate-600 font-medium">Total Orders</p>
@@ -109,7 +109,7 @@ const UserDetailsModal = ({ userId, userName, onClose }) => {
                 </div>
                 <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                   <p className="text-sm text-slate-600 font-medium">Total Spent</p>
-                  <p className="text-2xl font-bold text-slate-900 mt-2">${user.totalSpent.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-2">${user.totalSpent.toFixed(8)}</p>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                   <p className="text-sm text-slate-600 font-medium">Status</p>

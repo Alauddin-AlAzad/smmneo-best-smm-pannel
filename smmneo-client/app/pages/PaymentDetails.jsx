@@ -105,9 +105,22 @@ export default function PaymentDetails(){
 
   if (!method) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
+  const displayedPaymentNumber = method.number || method.meta?.number || '01603600814';
+
+  async function handleCopyPaymentNumber() {
+    if (!displayedPaymentNumber) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(displayedPaymentNumber);
+      toast.success('Copied payment number');
+    } catch (err) {
+      toast.error('Unable to copy the payment number');
+    }
+  }
+
   return (
     <div className="bg-slate-50 min-h-screen flex items-center justify-center p-0 sm:p-6 font-sans">
-      <div className="bg-white w-full sm:max-w-md md:max-w-lg rounded-none sm:rounded-2xl shadow-none sm:shadow-lg border-0 sm:border border-gray-100 flex flex-col min-h-screen sm:min-h-auto">
+      <div className="bg-white w-full sm:max-w-md md:max-w-lg rounded-none sm:rounded-2xl shadow-none sm:shadow-lg border-0 sm:border border-gray-100 flex flex-col min-h-0 sm:min-h-auto">
 
         <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
           <button className="text-gray-400 hover:text-gray-600 transition p-1 rounded-full hover:bg-gray-50" onClick={() => navigate(-1)}>
@@ -124,7 +137,7 @@ export default function PaymentDetails(){
 
         <div className="p-4 sm:p-5 flex-1 overflow-y-auto">
 
-          <div className="flex justify-center mb-5">
+          <div className="flex justify-center mb-4">
             {method.logo ? (
               <img src={method.logo} alt={method.label || method.key} className="h-12 object-contain" />
             ) : (
@@ -134,7 +147,7 @@ export default function PaymentDetails(){
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div className="border border-gray-100 rounded-xl p-3 flex items-center gap-3 bg-slate-50/50">
               <div className="w-10 h-10 rounded-full border border-blue-200 flex items-center justify-center bg-white shrink-0 p-1">
                 {method.logo ? (
@@ -155,7 +168,7 @@ export default function PaymentDetails(){
             </div>
           </div>
 
-          <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm mb-5 text-xs sm:text-sm text-slate-700 space-y-3.5">
+          <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm mb-4 text-xs sm:text-sm text-slate-700 space-y-3">
 
             <div className="flex items-start gap-2.5">
               <span className="text-blue-600 font-bold mt-0.5">•</span>
@@ -174,9 +187,9 @@ export default function PaymentDetails(){
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-start gap-2.5">
                 <span className="text-blue-600 font-bold mt-0.5">•</span>
-                <p>প্রাপক নম্বর হিসেবে এই নম্বরটি লিখুন: <strong className="font-bold font-mono tracking-wide text-slate-800 selection:bg-blue-100">{method.number || method.meta?.number || '01889458590'}</strong></p>
+                <p>প্রাপক নম্বর হিসেবে এই নম্বরটি লিখুন: <strong className="font-bold font-mono tracking-wide text-slate-800 selection:bg-blue-100">{displayedPaymentNumber}</strong></p>
               </div>
-              <button type="button" onClick={()=>{navigator.clipboard?.writeText(method.number || method.meta?.number || '')}} className="self-end sm:self-auto flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition active:scale-95 shadow-sm">
+              <button type="button" onClick={handleCopyPaymentNumber} className="self-end sm:self-auto flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-medium transition active:scale-95 shadow-sm">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
                 কপি করুন
               </button>
@@ -210,7 +223,7 @@ export default function PaymentDetails(){
             </div>
           </div>
 
-          <div className="space-y-4 mb-4">
+          <div className="space-y-3 mb-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs sm:text-sm font-bold text-slate-700">Sender Number</label>
               <input 
