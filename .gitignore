@@ -1,15 +1,16 @@
-# Ignore local environment files
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Env / secrets (never commit)
 .env
-.env.local
-.env.development
-.env.test
-.env.production
-.env.development.local
-.env.test.local
-.env.production.local
-.envfile
 .env.*
 !.env.example
+.envfile
 
-# Node modules / build artifacts
-node_modules/
+# Build output / caches
+.firebase/
+.vercel
+*.log
+.DS_Store
+admin_cookies.txt
